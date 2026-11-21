@@ -13,6 +13,8 @@
 *.elf binary
 *.dll binary
 *.exe binary
+*.wav binary
+*.ttf binary
 
 # Diagnostic overlay hashes and patches are identical on Windows and Linux.
 ci/diagnostics/*.py text eol=lf
