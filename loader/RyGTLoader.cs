@@ -2375,7 +2375,7 @@ namespace RyGT
             SwitchWalker.Game = target;
             CustomEnvironment.ExeName = info.ExeName;
             pageNames = !ready ? new[] { "Game", "About" }
-                      : target == GameKind.GT7 ? new[] { "Game", "Display", "Graphics", "Shaders", "Controls", "Account", "Online", "Advanced", "About" }
+                      : target == GameKind.GT7 ? new[] { "Game", "Display", "Graphics", "Shaders", "Controls", "Account", "Trophies", "Online", "Advanced", "About" }
                       : new[] { "Game", "Display", "Graphics", "Shaders", "Controls", "Advanced", "About" };
 
             // The sidebar: the game's logo, or its title as text.
