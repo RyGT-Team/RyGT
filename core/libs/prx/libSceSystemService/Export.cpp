@@ -11,6 +11,23 @@
 #include "prx/libSceSystemService/SystemService.hpp"
 #include "prx/libSceSystemService/HdrLuminance.hpp"
 
+namespace {
+
+// The system language reported to the title: RTY_SYSTEM_LANGUAGE, either a PS4 language id
+// (0-30) or "es" (Spain) / "es-419" (Latin America); English (US) when unset or not understood.
+int SystemLanguage() {
+    const char* text = std::getenv("RTY_SYSTEM_LANGUAGE");
+    if (text == nullptr || *text == '\0') return SYSTEM_SERVICE_PARAM_LANG_ENGLISH_US;
+    if (std::strcmp(text, "es") == 0 || std::strcmp(text, "es-ES") == 0) return SYSTEM_SERVICE_PARAM_LANG_SPANISH;
+    if (std::strcmp(text, "es-419") == 0 || std::strcmp(text, "es-LA") == 0) return SYSTEM_SERVICE_PARAM_LANG_SPANISH_LA;
+    char* end = nullptr;
+    const long id = std::strtol(text, &end, 10);
+    if (end == text || *end != '\0' || id < 0 || id > SYSTEM_SERVICE_PARAM_LANG_LAST) return SYSTEM_SERVICE_PARAM_LANG_ENGLISH_US;
+    return static_cast<int>(id);
+}
+
+}
+
 extern "C" {
 
 int APS5_VABI sceSystemServiceGetVersionNumberOfCameraCalibrationData() {
@@ -111,7 +128,7 @@ int APS5_VABI sceSystemServiceParamGetInt(int paramId, int* value) {
   return SYSTEM_SERVICE_ERROR_PARAMETER;
  }
  switch (paramId) {
-  case SYSTEM_SERVICE_PARAM_ID_LANG: *value = SYSTEM_SERVICE_PARAM_LANG_ENGLISH_US; break;
+  case SYSTEM_SERVICE_PARAM_ID_LANG: *value = SystemLanguage(); break;
   case SYSTEM_SERVICE_PARAM_ID_DATE_FORMAT: *value = SYSTEM_SERVICE_PARAM_DATE_FORMAT_DDMMYYYY; break;
   case SYSTEM_SERVICE_PARAM_ID_TIME_FORMAT: *value = SYSTEM_SERVICE_PARAM_TIME_FORMAT_24HOUR; break;
   case SYSTEM_SERVICE_PARAM_ID_TIME_ZONE: *value = 0; break;
