@@ -369,6 +369,7 @@ const WheelSettings& Wheel() {
             for (auto& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             if (key == "rotation") result.rotation = std::max(90, std::atoi(value.c_str()));
             else if (key == "pedalmax") result.pedalMax = static_cast<unsigned>(std::max(1L, std::strtol(value.c_str(), nullptr, 0)));
+            else if (key == "pedaldeadzone") result.pedalDeadzone = std::clamp(std::atoi(value.c_str()), 0, 20);
             else if (key == "angleunit") result.angleRadians = value == "rad" || value == "radians";
             else if (key == "ffbgain") result.ffbGain = std::atoi(value.c_str());
             else if (key == "padiswheel") result.padIsWheel = std::atoi(value.c_str()) != 0;
@@ -387,6 +388,7 @@ const WheelSettings& Wheel() {
         }
         APS5_LOG_OUT("Pad: force feedback: gain %d%%, damping %d%%, detail %d%%%s", result.ffbGain, result.ffbDamping, result.ffbDetail,
             result.ffbInvert ? ", reversed" : "");
+        APS5_LOG_ERR("Pad: pedal deadzone %d%%", result.pedalDeadzone);
         APS5_LOG_OUT("Pad: wheel settings: rotation %d, pedal max %u, angle in %s, present as %04x:%04x, capability 0x%x",
             result.rotation, result.pedalMax, result.angleRadians ? "radians" : "degrees", result.vendor, result.product, result.capability);
         return result;

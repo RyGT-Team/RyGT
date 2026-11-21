@@ -41,7 +41,7 @@ The wheel is reported to the game as a native steering wheel: `scePadOpenExt` op
 Without any configuration:
 
 - Steering is axis 0 of the wheel.
-- The pedals are found automatically: axes that rest at one end of their range, on the wheel first and then on a separately connected pedal set, become the throttle, brake and clutch, in axis order. Pedals that rest high (Logitech) and pedals that rest low (Moza, most others) both work.
+- The pedals are found automatically: axes that rest at one end of their range, on the wheel first and then on a separately connected pedal set, become the throttle, brake and clutch, in axis order. Pedals that rest high (Logitech) and pedals that rest low (Moza, most others) both work. Windows' Logitech driver can report a pedal at the middle of its range until it is first moved; a Logitech pedal whose rest was read there takes the top of its range as its rest once it reports it released.
 - The wheel's D-pad is the pad's D-pad. On Logitech wheels the face buttons map to the matching PlayStation buttons (or A/B/X/Y on Xbox wheels), the right and left paddles to R1 and L1, and Options/Menu to Options. Other wheels have no default button mapping.
 - Wheels with force feedback get a centering spring at 30% strength until the game sends its own forces. Set `RTY_WHEEL_SPRING` to a value from 0 to 100 to change it; 0 turns it off.
 
@@ -83,6 +83,7 @@ Optional, beside the game executable, with `Key = Value` lines:
 | --- | --- | --- |
 | `Rotation` | 900 | Lock-to-lock degrees, as set in the wheel's own software. |
 | `PedalMax` | 65535 | Pedal value reported at full press. |
+| `PedalDeadzone` | 2 | Percent of pedal travel ignored at the released end (0-20), so a noisy pedal rests at 0. |
 | `AngleUnit` | `deg` | Unit of the reported steering angle (`deg` or `rad`). |
 | `Present` | `0eb7:0e05` | USB vendor:product the wheel is presented as: `0eb7:0e05` a Fanatec direct-drive base, `046d:c24f` a Logitech G29. |
 | `Capability` | 0 | Steering-wheel capability bits reported to the game. |

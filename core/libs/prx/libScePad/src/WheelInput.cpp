@@ -45,6 +45,16 @@ bool isThrustmasterWheel(std::uint16_t vendor, SDL_JoystickType type) {
            type != SDL_JOYSTICK_TYPE_THROTTLE && type != SDL_JOYSTICK_TYPE_ARCADE_STICK;
 }
 
+// A resting position this close to the middle is read as a centred axis by pedalAmount.
+constexpr int CentredRestLimit = 8000;
+// Logitech pedals rest at the top of their range; a reading this high is a released pedal.
+constexpr int LogitechReleasedPedal = 30000;
+// A pedal counts as fully pressed from this much of its travel on.
+constexpr float FullPressAt = 0.97f;
+// A raised Logitech pedal rest is logged only when it moves this much (the first reports can
+// arrive while the driver is still settling).
+constexpr int RestRaiseLogStep = 100;
+
 std::string lower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return value;
@@ -53,14 +63,16 @@ std::string lower(std::string value) {
 // 0..1 travel of a pedal axis from its resting position. A pedal that rests at one end of the
 // range is read towards the other end (Logitech pedals rest high, most others rest low); one
 // that rests near the middle is read towards the positive end, or the negative end if inverted.
-float pedalAmount(int value, int rest, bool invert) {
+float pedalAmount(int value, int rest, bool invert, int deadzonePercent) {
     float amount;
     if (rest > 8000) amount = static_cast<float>(rest - value) / static_cast<float>(rest + 32768);
     else if (rest < -8000) amount = static_cast<float>(value - rest) / static_cast<float>(32767 - rest);
     else if (!invert) amount = static_cast<float>(value - rest) / static_cast<float>(32767 - rest);
     else amount = static_cast<float>(rest - value) / static_cast<float>(rest + 32768);
-    // A little dead travel at both ends so a noisy pedal rests at 0 and a worn one still reaches 1.
-    return std::clamp((amount - 0.02f) / 0.95f, 0.0f, 1.0f);
+    // A little dead travel at both ends so a noisy pedal rests at 0 and a worn one still reaches 1
+    // (PedalDeadzone at the released end, 2% by default; 3% at the pressed end).
+    const float start = static_cast<float>(deadzonePercent) / 100.0f;
+    return std::clamp((amount - start) / (FullPressAt - start), 0.0f, 1.0f);
 }
 
 void applyStick(Pad::InputControl control, std::array<bool, 4>& negative, std::array<bool, 4>& positive) {
@@ -346,6 +358,47 @@ void WheelInput::logActivity(Device& device) {
     }
 }
 
+// Logged as an error so it reaches stderr.log in release builds, where the pedal range is checked.
+void WheelInput::logRest(const Device& device, const char* note) {
+    std::string values;
+    for (std::size_t axis = 0; axis < device.rest.size(); ++axis) {
+        if (axis > 0) values += ',';
+        values += std::to_string(device.rest[axis]);
+    }
+    APS5_LOG_ERR("Pad: %s (%04x:%04x) axis rest %s: %s", device.name.c_str(), device.vendor, device.product, note, values.c_str());
+}
+
+// Windows' Logitech driver can report a pedal axis at the middle of its range until the pedal is
+// first moved, and the resting positions may be captured before that. A Logitech pedal read
+// against a middle rest loses the first half of its travel (it counts as a centred axis), so once
+// such an axis reports a released pedal (the top of its range), that becomes its rest. Steering
+// (axis 0) and other makers' wheels are left alone. Returns true when a rest changed.
+bool WheelInput::correctLogitechPedalRest(Device& device) {
+    if (!device.restCaptured || !isLogitechWheel(device.vendor, device.product)) return false;
+    bool corrected = false;
+    for (std::size_t axis = 1; axis < device.rest.size(); ++axis) {
+        const int rest = device.rest[axis];
+        const int value = SDL_JoystickGetAxis(device.joystick, static_cast<int>(axis));
+        if (rest > CentredRestLimit) {
+            // A pedal resting high: its rest is the highest value it has reported released, so a
+            // rest taken while the driver was still settling does not leave dead travel.
+            if (value <= rest) continue;
+            if (value - rest >= RestRaiseLogStep) {
+                APS5_LOG_ERR("Pad: %s axis %zu rest raised from %d to %d", device.name.c_str(), axis, rest, value);
+            }
+            device.rest[axis] = static_cast<std::int16_t>(value);
+            continue;
+        }
+        if (rest < -CentredRestLimit || value <= LogitechReleasedPedal) continue;
+        APS5_LOG_ERR("Pad: %s axis %zu rest %d is centred; pedal released at %d, using that as its rest", device.name.c_str(), axis,
+            device.rest[axis], value);
+        device.rest[axis] = static_cast<std::int16_t>(value);
+        corrected = true;
+    }
+    if (corrected) logRest(device, "corrected");
+    return corrected;
+}
+
 bool WheelInput::Update() {
     if (devices.empty()) {
         std::lock_guard lock(sampleMutex);
@@ -371,7 +424,9 @@ bool WheelInput::Update() {
             }
             device->restCaptured = true;
             captured = true;
+            logRest(*device, "captured");
         }
+        captured = correctLogitechPedalRest(*device) || captured;
         logActivity(*device);
     }
     if (captured) rebuild();
@@ -390,7 +445,7 @@ bool WheelInput::Update() {
                 continue;
             }
             if (!entry.device->restCaptured) continue;
-            const auto amount = static_cast<std::uint16_t>(std::lround(pedalAmount(value, entry.device->rest[binding.axis], binding.invert) * 65535.0f));
+            const auto amount = static_cast<std::uint16_t>(std::lround(pedalAmount(value, entry.device->rest[binding.axis], binding.invert, Pad::Wheel().pedalDeadzone) * 65535.0f));
             if (binding.control == Pad::InputControl::Throttle) next.throttle = std::max(next.throttle, amount);
             if (binding.control == Pad::InputControl::Brake) next.brake = std::max(next.brake, amount);
             if (binding.control == Pad::InputControl::Clutch) next.clutch = std::max(next.clutch, amount);

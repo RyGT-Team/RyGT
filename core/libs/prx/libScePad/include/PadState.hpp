@@ -116,6 +116,8 @@ struct WheelSettings {
     // Scale the steering to the lock the game asks for per car (the G29's range command), as a
     // real wheel does on a PS4. 0 reports the whole configured rotation for every car.
     bool carLock = true;
+    // Percent of pedal travel ignored at the released end (0-20), so a noisy pedal rests at 0.
+    int pedalDeadzone = 2;
 };
 const WheelSettings& Wheel();
 
