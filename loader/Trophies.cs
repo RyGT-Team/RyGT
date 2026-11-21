@@ -494,15 +494,19 @@ namespace RyGT
             return ids;
         }
 
-        public static string ProgressDir(string root) { return Path.Combine(root, "_sd", "trophies_progress"); }
+        public static string ProgressDir(string root) { return Path.Combine(root, "user", "savedata", GameInfo.GT7.TitleId, "_sd", "trophies_progress"); }
+
+        public static string OldProgressDir(string root) { return Path.Combine(root, "_sd", "trophies_progress"); }
 
         public static List<string> UnlockFiles(string root, string npCommId)
         {
             var dirs = new List<string>();
-            string progress = ProgressDir(root);
-            dirs.Add(progress);
-            try { if (Directory.Exists(progress)) dirs.AddRange(Directory.GetDirectories(progress).OrderBy(d => d)); }
-            catch { }
+            foreach (string progress in new[] { ProgressDir(root), OldProgressDir(root) })
+            {
+                dirs.Add(progress);
+                try { if (Directory.Exists(progress)) dirs.AddRange(Directory.GetDirectories(progress).OrderBy(d => d)); }
+                catch { }
+            }
             string home = Path.Combine(UserDir(root), "home");
             string first = Path.Combine(home, "1000");
             dirs.Add(Path.Combine(first, "trophy"));
@@ -984,7 +988,7 @@ namespace RyGT
             int earned = set.Trophies.Count(t => t.Earned), total = set.Trophies.Count;
             trophySummary.Text = earned + " of " + total + " earned (" + (total == 0 ? 0 : (int)Math.Round(100.0 * earned / total)) + "%)";
             if (set.UnlockFile == null)
-                trophyList.Controls.Add(Hint("Nothing earned yet (no progress file for " + set.NpCommId + " in _sd\\trophies_progress)."));
+                trophyList.Controls.Add(Hint("Nothing earned yet (no progress file for " + set.NpCommId + " in user\\savedata\\" + GameInfo.GT7.TitleId + "\\_sd\\trophies_progress)."));
             foreach (var t in set.Trophies.OrderBy(t => t.Id))
             {
                 Image icon;

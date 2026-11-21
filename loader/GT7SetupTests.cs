@@ -162,9 +162,12 @@ namespace RyGT
             string id = "NPWR12345_00";
             Put(Path.Combine(root, "user", "home", "1000", "trophy"), id + ".xml", "<trophyconf/>");
             Check(TrophyStore.UnlockFiles(root, id).Count == 1, "Progress not moved yet is read from user\\home");
-            Put(TrophyStore.ProgressDir(root), id + ".xml", "<trophyconf/>");
+            Put(TrophyStore.OldProgressDir(root), id + ".xml", "<trophyconf/>");
             var files = TrophyStore.UnlockFiles(root, id);
-            Check(files.Count == 2 && files[0] == Path.Combine(TrophyStore.ProgressDir(root), id + ".xml"), "Progress in _sd\\trophies_progress comes first");
+            Check(files.Count == 2 && files[0] == Path.Combine(TrophyStore.OldProgressDir(root), id + ".xml"), "Progress in the old _sd\\trophies_progress beats user\\home");
+            Put(TrophyStore.ProgressDir(root), id + ".xml", "<trophyconf/>");
+            files = TrophyStore.UnlockFiles(root, id);
+            Check(files.Count == 3 && files[0] == Path.Combine(TrophyStore.ProgressDir(root), id + ".xml"), "Progress next to the saves in user\\savedata\\<serial>\\_sd comes first");
         }
 
         internal static void TrophyChecks()
