@@ -108,6 +108,11 @@ constexpr bool stickNamesHighEnd(Pad::InputControl control) {
            control == Pad::InputControl::RightStickRight || control == Pad::InputControl::RightStickDown;
 }
 
+// Travel an axis must pass before a stick binding may take the channel from the controller: an
+// untouched axis drifts around its rest value, and Apply takes over on any value other than exact
+// 128. ~2% of the 32767 half-range.
+constexpr int StickTakeoverTravel = 655;
+
 }
 
 WheelInput::WheelInput(const Pad::InputConfig& config)
@@ -494,7 +499,9 @@ bool WheelInput::Update() {
                 const int toward = stickNamesHighEnd(binding.control) ? 128 + travel * 127 / 32767 : 128 - travel * 127 / 32767;
                 const int index = stickAxisIndex(binding.control);
                 if (std::abs(toward - 128) > std::abs(next.stickValues[index] - 128)) next.stickValues[index] = std::clamp(toward, 0, 255);
-                next.analogStick[index] = true;
+                // An untouched axis is never exactly on its rest value: only claim the channel once the
+                // travel clearly passes drift, or the controller's own stick keeps it.
+                if (std::abs(travel) > StickTakeoverTravel) next.analogStick[index] = true;
                 continue;
             }
             const auto amount = static_cast<std::uint16_t>(std::lround(pedalAmount(value, entry.device->rest[binding.axis], binding.invert, Pad::Wheel().pedalDeadzone) * 65535.0f));
