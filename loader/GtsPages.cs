@@ -584,7 +584,7 @@ namespace RyGT
 
         void OpenWheel()
         {
-            using (var form = new WheelForm(root)) form.ShowDialog(this);
+            using (var form = new WheelForm(root, GameInfo.GTSport)) form.ShowDialog(this);
         }
 
 

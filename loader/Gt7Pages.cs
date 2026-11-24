@@ -656,7 +656,7 @@ namespace RyGT
             // ---- Controls: the controller, keyboard and wheel, drawn (ControlsPage); the controller
             // ports open from it. It saves as you change things.
             var controlsHost = new Panel { Dock = DockStyle.Fill, BackColor = Dark.Panel, Visible = false, Padding = new Padding(46, 34, 46, 24) };
-            controls = new ControlsPage(root, ReadIntSetting, WriteSetting, OpenPorts) { Dock = DockStyle.Fill };
+            controls = new ControlsPage(root, GameInfo.GT7, ReadIntSetting, WriteSetting, OpenPorts) { Dock = DockStyle.Fill };
             controlsHost.Controls.Add(controls);
             pagesHost.Controls.Add(controlsHost);
             pages["Controls"] = controlsHost;

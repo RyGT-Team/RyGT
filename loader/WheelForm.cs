@@ -76,10 +76,6 @@ namespace RyGT
         readonly NumericUpDown rotation, gain, damping, detail;
         readonly CheckBox invertForces, gameWheelMode;
         readonly ComboBox presentAs;
-        // The wheel models the game can be told it has (ryty-wheel.ini "Present"); the game
-        // uses that model's own force feedback driver.
-        static readonly string[] PresentNames = { "Fanatec direct drive (recommended)", "Logitech G29" };
-        static readonly string[] PresentIds = { "0eb7:0e05", "046d:c24f" };
         readonly Timer timer;
         Process probe;
 
@@ -90,10 +86,10 @@ namespace RyGT
         Dictionary<int, int[]> baseHats;
         DateTime detectUntil;
 
-        public WheelForm(string root)
+        public WheelForm(string root, GameInfo game)
         {
             inputPath = Path.Combine(root, "ryty-input.ini");
-            wheelPath = Path.Combine(root, "ryty-wheel.ini");
+            wheelPath = Wheel.SettingsPath(root, game);
             probePath = Path.Combine(root, "tools", "ryty-wheel-probe.exe");
             if (!File.Exists(probePath)) probePath = Path.Combine(root, "ryty-wheel-probe.exe");
 
@@ -189,9 +185,12 @@ namespace RyGT
             settings.SetColumnSpan(gameWheelMode, 2);
             settings.Controls.Add(new Label { Text = "Game sees the wheel as (its force feedback driver)", AutoSize = true, Margin = new Padding(0, 6, 8, 0) });
             presentAs = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, FlatStyle = FlatStyle.Flat };
-            presentAs.Items.AddRange(PresentNames);
+            presentAs.Items.AddRange(Wheel.PresentNames);
             presentAs.SelectedIndex = 0;
             settings.Controls.Add(presentAs);
+            var t300Hint = new Label { Text = Wheel.T300ModeHint, AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
+            settings.Controls.Add(t300Hint);
+            settings.SetColumnSpan(t300Hint, 2);
             var feel = new Card(Dark.Panel) { AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(16, 10, 16, 12), Margin = new Padding(0, 0, 0, 4) };
             feel.Controls.Add(new Label { Text = "Force feedback and wheel", AutoSize = true, Font = new Font("Segoe UI Semibold", 11f), Margin = new Padding(0, 0, 0, 4) });
             feel.Controls.Add(settings);
@@ -535,7 +534,7 @@ namespace RyGT
             if (settings.TryGetValue("padiswheel", out text)) gameWheelMode.Checked = text == "1";
             if (settings.TryGetValue("present", out text))
             {
-                int index = Array.FindIndex(PresentIds, id => string.Equals(id, text.Trim(), StringComparison.OrdinalIgnoreCase));
+                int index = Array.FindIndex(Wheel.PresentIds, id => string.Equals(id, text.Trim(), StringComparison.OrdinalIgnoreCase));
                 if (index < 0 && text.Trim().StartsWith("0eb7", StringComparison.OrdinalIgnoreCase)) index = 0;
                 if (index >= 0) presentAs.SelectedIndex = index;
             }
@@ -544,8 +543,9 @@ namespace RyGT
         Dictionary<string, string> ReadWheelSettings()
         {
             var result = new Dictionary<string, string>();
-            if (!File.Exists(wheelPath)) return result;
-            foreach (var line in File.ReadAllLines(wheelPath))
+            var source = Wheel.SettingsSource(wheelPath);
+            if (!File.Exists(source)) return result;
+            foreach (var line in File.ReadAllLines(source))
             {
                 string value;
                 var key = ActionOf(line, out value);
@@ -593,9 +593,10 @@ namespace RyGT
                 { "FfbDamping", ((int)damping.Value).ToString(CultureInfo.InvariantCulture) },
                 { "FfbDetail", ((int)detail.Value).ToString(CultureInfo.InvariantCulture) },
                 { "PadIsWheel", gameWheelMode.Checked ? "1" : "0" },
-                { "Present", PresentIds[Math.Max(0, presentAs.SelectedIndex)] },
+                { "Present", Wheel.PresentIds[Math.Max(0, presentAs.SelectedIndex)] },
             };
-            var lines = File.Exists(wheelPath) ? File.ReadAllLines(wheelPath).ToList() : new List<string> { "# Racing wheel settings for RyGTS (also editable in the launcher)." };
+            var settingsSource = Wheel.SettingsSource(wheelPath);
+            var lines = File.Exists(settingsSource) ? File.ReadAllLines(settingsSource).ToList() : new List<string> { "# Racing wheel settings for RyGT (also editable in the launcher)." };
             var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < lines.Count; ++i)
             {

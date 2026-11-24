@@ -6,6 +6,11 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.20 - 2026-11-24
+
+* FEAT-RT-031: Add an experimental native Thrustmaster T300RS profile for GT7 and GT Sport.
+  Each game saves its own wheel settings, with the old shared file as the initial settings.
+
 ## 0.3.19 - 2026-11-23
 
 * FEAT-GT7-187/189: GT7 gets a Trophies page. It reads trophy files the player already extracted into
