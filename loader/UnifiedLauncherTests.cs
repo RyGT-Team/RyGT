@@ -162,6 +162,50 @@ namespace RyGT
             scene.SelectedItem = "2560 x 1440";
             var config = File.ReadAllText(game.ConfigPath(root));
             Check(config.Contains("2560x1440"), "Scene preset persisted for " + game.TitleId);
+            var shape = (System.Windows.Forms.ComboBox)display.Controls.Find("CameraShape", true).Single();
+            var preview = display.Controls.Find("ScenePreview", true).Single();
+            var graphics = pages["Graphics"];
+            var pro = (System.Windows.Forms.ComboBox)graphics.Controls.Find("ProMode", true).Single();
+            var checker = (System.Windows.Forms.CheckBox)graphics.Controls.Find("ps4_pro_checkerboard", true).Single();
+            bool gts = game.Kind == GameKind.GTSport;
+            Check(graphics.Controls.Find("ps4_pro_garage60", true).Length == (gts ? 0 : 1) &&
+                  graphics.Controls.Find("ps4_pro_replay_blur", true).Length == (gts ? 0 : 1),
+                  "Only GT7 has the two additional effects");
+            pro.SelectedIndex = 2;
+            Check(scene.Enabled && !checker.Checked, "Pro with a 1080p TV allows fixed resolution");
+            pro.SelectedIndex = 1;
+            Check(!scene.Enabled && preview.Text.Contains("checkerboard"), "Pro with a 4K TV owns the scene");
+            pro.SelectedIndex = 3;
+            Check(!scene.Enabled, "Full excludes fixed resolution");
+            pro.SelectedIndex = 4;
+            Check(!scene.Enabled, "Custom with checkerboard excludes fixed resolution");
+            pro.SelectedIndex = 2;
+            Check(scene.Enabled && (string)scene.SelectedItem == "2560 x 1440", "Fixed preset survives TV changes");
+            output.SelectedItem = "3440 x 1440";
+            shape.SelectedIndex = 1;
+            Check(scene.Enabled && preview.Text.Contains("2560 × 1440") && preview.Text.Contains("3440 × 1440"),
+                  "Wide output and fixed scene can differ in Pro 1080p");
+            if (gts) {
+                var height = (System.Windows.Forms.ComboBox)display.Controls.Find("WideSceneHeight", true).Single();
+                shape.SelectedIndex = 2;
+                Check(!scene.Enabled && height.Enabled && preview.Text.Contains("2576 × 1080"), "True wide owns the scene");
+                height.SelectedItem = "1440";
+                Check(preview.Text.Contains("True wide scene 3440 × 1440"), "Wide scene height follows output shape");
+                height.SelectedItem = "2160";
+                Size capped = RenderResolution.TrueWideSize(new Size(3440, 1440), 2160);
+                Check(capped.Height < 2160 && preview.Text.Contains(capped.Width + " × " + capped.Height),
+                      "Ultra-wide requests above the renderer pixel budget show the capped size");
+                pro.SelectedIndex = 1;
+                Check(!scene.Enabled && !height.Enabled, "Checkerboard also excludes true wide allocation");
+                pro.SelectedIndex = 2;
+                output.SelectedItem = "1920 x 1080";
+                Check(scene.Enabled && !height.Enabled, "True wide on 16:9 restores the fixed scene");
+                output.SelectedItem = "3440 x 1440";
+            }
+            shape.SelectedIndex = 0;
+            Check(scene.Enabled && (string)scene.SelectedItem == "2560 x 1440" && preview.Text.Contains("centered"),
+                  "Leaving wide mode restores a centered image");
+            pro.SelectedIndex = 0;
             scene.SelectedIndex = 0;
         }
 

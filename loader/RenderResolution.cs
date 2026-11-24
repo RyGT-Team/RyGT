@@ -3,6 +3,7 @@ using System;
 using System.Drawing;
 using System.Diagnostics;
 using System.IO;
+using System.Collections.Generic;
 namespace RyGT
 {
     internal static class RenderResolution
@@ -87,12 +88,52 @@ namespace RyGT
             return new Size(int.Parse(parts[0]), int.Parse(parts[1]));
         }
 
+        static double ConfiguredAspect(string value)
+        {
+            if (String.IsNullOrEmpty(value)) return 0;
+            string[] parts = value.Split(':');
+            double width, height = 1;
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            var style = System.Globalization.NumberStyles.Float;
+            if (parts.Length > 2 || !double.TryParse(parts[0], style, culture, out width) ||
+                (parts.Length == 2 && !double.TryParse(parts[1], style, culture, out height)) || height <= 0) return 0;
+            return width / height;
+        }
+
+        public static bool MatchOutputShape(string value)
+        {
+            double ratio = ConfiguredAspect(value);
+            return value == "auto" || (ratio > 0.5 && ratio < 6 && Math.Abs(ratio - 16.0 / 9) >= 0.01);
+        }
+
+        public static bool WideAllocation(string aspect, Size output)
+        {
+            double ratio = aspect == "auto" ? (double)output.Width / output.Height : ConfiguredAspect(aspect);
+            return ratio > 16.0 / 9 + 0.01 && ratio < 6;
+        }
+
+        public static bool IsWideOutput(Size output)
+        {
+            return (double)output.Width / output.Height > 16.0 / 9.0 + 0.01;
+        }
+
+        // shadGT WIDE-001 rounds to 16 pixels and caps the scene at UHD's pixel count.
+        public static Size TrueWideSize(Size output, int height)
+        {
+            double aspect = (float)((double)output.Width / output.Height);
+            if (height < 360 || height > 2160) height = 1080;
+            if (height * (double)height * aspect > 3840.0 * 2160)
+                height = (int)Math.Sqrt(3840.0 * 2160 / aspect) & ~7;
+            int width = (int)Math.Round(height * aspect / 16.0, MidpointRounding.AwayFromZero) * 16;
+            return new Size(Math.Min(7680, width), height);
+        }
+
         static string Immediate(int rva, string opcode, int original, int replacement)
         {
             return rva.ToString("x") + ":" + opcode + Word(original) + ":" + opcode + Word(replacement);
         }
 
-        static string[] NativePatches(bool gt7, Size size)
+        static List<string> NativePatches(bool gt7, Size size, bool pro1080)
         {
             const int width = 1920, height = 1080;
             string extent = Word(width) + Word(height);
@@ -104,7 +145,7 @@ namespace RyGT
             int stride = Math.Max(2048, ((size.Width * 2048 + width * 256 - 1) / (width * 256)) * 256);
             // Ghidra: both base paths allocate the scene, flip and screen targets independently.
             // Their TV/AA selectors and base pool sizes differ. Both UI allocators stack two surfaces.
-            return new[] {
+            var patches = new List<string> {
                 gt7 ? "17a7432:813dd8811b0439040000:813dd8811b04ffffff7f"
                     : "1c6dea0:8b0d8696f500:b93804000090",
                 Immediate(gt7 ? 0x17a7416 : 0x1c6dee5, gt7 ? "bb" : "41bf", width, size.Width),  // flip
@@ -113,12 +154,25 @@ namespace RyGT
                 Immediate(gt7 ? 0x17a7421 : 0x1c6ded3, gt7 ? "b9" : "c7054f96f500", height, size.Height),
                 (gt7 ? "27cadc6" : "1988ad3") + ":48b9" + extent + ":48b9" + target,
                 Immediate(gt7 ? 0x27caa03 : 0x19885dd, "b8", pool, pool * poolCount),
-                Immediate(gt7 ? 0x27cabf9 : 0x198899f, "05", 2048, stride),
+                // In Pro mode the game adds 2048 before this instruction. Keep its stock
+                // 4096-wide scratch surface and avoid counting that offset twice.
+                pro1080 ? (gt7 ? "27cabf9" : "198899f") + ":0500080000:b8" + Word(Math.Max(4096, stride))
+                        : Immediate(gt7 ? 0x27cabf9 : 0x198899f, "05", 2048, stride),
                 Immediate(gt7 ? 0x27cac03 : 0x19889b1, gt7 ? "c74604" : "c745b4", 2 * height, 2 * Math.Max(height, size.Height))
             };
+            if (pro1080) {
+                // TV height chooses the scene path; the console flag independently selects
+                // the flip dimensions and pool. Keep the Pro flag and its 1080p effects.
+                patches.Add(Immediate(gt7 ? 0x17a746d : 0x1c6dee0, "b8", 3840, size.Width));
+                patches.Add(Immediate(gt7 ? 0x17a7481 : 0x1c6def5, "b8", 2160, size.Height));
+                const int proPool = 0x1bb00000;
+                patches.Add(Immediate(gt7 ? 0x27ca9f2 : 0x19885c8, "b9", proPool,
+                                      proPool + pool * (poolCount - 1)));
+            }
+            return patches;
         }
 
-        public static void ConfigureNative(ProcessStartInfo start, string root, bool gt7, string patchVariable, Size size)
+        public static void ConfigureNative(ProcessStartInfo start, string root, bool gt7, string patchVariable, Size size, bool pro1080 = false)
         {
             bool wide = gt7 && SupportsWideScene(size);
             if (!wide && (size.Width < 16 || size.Width > 3840 || size.Height < 9 || size.Height > 2160 ||
@@ -126,8 +180,8 @@ namespace RyGT
             if (!String.IsNullOrEmpty(start.EnvironmentVariables["SHADGT_PATCH"]) ||
                 !String.IsNullOrEmpty(start.EnvironmentVariables["RYGT_PATCH"]))
                 throw new InvalidOperationException("Native resolution conflicts with another game patch or scene scale.");
-            if (size != new Size(1920, 1080)) {
-                var patches = NativePatches(gt7, size);
+            if (pro1080 || size != new Size(1920, 1080)) {
+                var patches = NativePatches(gt7, size, pro1080);
                 using (var exe = new BinaryReader(File.OpenRead(Path.Combine(root, gt7 ? "GT7.exe" : "GTSport.exe")))) {
                     foreach (var patch in patches) {
                         var parts = patch.Split(':');
@@ -141,12 +195,6 @@ namespace RyGT
                 start.EnvironmentVariables["RYGT_ASPECT"] = aspect;
                 start.EnvironmentVariables["SHADGT_ASPECT"] = aspect;
             }
-            // The larger pools are on the base-console path in both games. Keep the Pro
-            // checkerboard and independent viewport experiments out of this process.
-            start.EnvironmentVariables["RYGT_NEO"] = "0";
-            start.EnvironmentVariables["SHADGT_NEO"] = "0";
-            start.EnvironmentVariables["SHADGT_PS4_PRO"] = "0";
-            start.EnvironmentVariables["SHADGT_WIDE_SCENE"] = "0";
             start.EnvironmentVariables["SHADGT_EXPERIMENTAL_SCENE_VIEWPORT"] = "0";
             start.EnvironmentVariables["SHADGT_LOW_RES_COMPOSITION"] = "0";
         }

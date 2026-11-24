@@ -548,8 +548,17 @@ namespace RyGT
 
             var extras = Section(graphicsPage, "Enhancements");
             AddOption(extras, "Disable motion blur", "GPU", "disable_motion_blur", false);
-            AddOption(extras, "PS4 Pro Mode", "GPU", "ps4_pro", false);
+            Action refreshProWarning;
+            var checkerboard = AddProSettings(graphicsPage, () => dlss.Checked, null, out refreshProWarning);
+            dlss.CheckedChanged += delegate {
+                if (dlss.Checked && checkerboard.Checked) {
+                    dlss.Checked = false;
+                    MessageBox.Show(this, "Choose base PS4 or PS4 Pro, 1080p TV before enabling NVIDIA DLSS.");
+                }
+                refreshProWarning();
+            };
             uiHiresBox = AddOption(extras, "Draw the UI at screen resolution", "GPU", "ui_hires", false);
+            uiHiresBox.CheckedChanged += delegate { refreshSceneChoice(); };
             var hdr = (ToggleRow)AddOption(extras, "HDR (experimental; needs Windows HDR on)", "GPU", "hdr_allowed", false);
             // FEAT-GTS-527: GT Sport stays in SDR until its own HDR Output is on (saved in the game's progression).
             hdr.NoLine = true;
@@ -699,7 +708,8 @@ namespace RyGT
             var label = new Label { Text = "Screen shape", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
             var shape = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
             shape.Items.AddRange(new object[] { "16:9 (the game's own)", "Fill the screen (stretched)", "True wide (ultrawide, 21:9 / 32:9)" });
-            bool fill = ReadStringSetting("GPU", "aspect_ratio", "16:9") == "auto";
+            shape.Name = "CameraShape";
+            bool fill = RenderResolution.MatchOutputShape(ReadStringSetting("GPU", "aspect_ratio", "16:9"));
             shape.SelectedIndex = !fill ? 0 : ReadSetting("GPU", "wide_scene", false) ? 2 : 1;
             row.Controls.Add(label);
             row.Controls.Add(shape);
@@ -710,25 +720,23 @@ namespace RyGT
             var heightRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
             var heightLabel = new Label { Text = "Wide scene height", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
             var height = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
-            var heights = new[] { 1080, 1200, 1440 };
-            height.Items.AddRange(new object[] { "1080 (recommended)", "1200", "1440 (sharpest, slowest)" });
+            var heights = new[] { 720, 900, 1080, 1200, 1440, 1800, 2160 };
+            foreach (int h in heights) height.Items.Add(h.ToString());
             int savedHeight = ReadIntSetting("GPU", "wide_scene_height", 0);
             if (savedHeight == 0) int.TryParse(ReadStringSetting("GPU", "wide_scene_height", "1080"), out savedHeight);
-            height.SelectedIndex = Math.Max(0, Array.IndexOf(heights, savedHeight));
+            height.SelectedItem = (heights.Contains(savedHeight) ? savedHeight : 1080).ToString();
             heightRow.Controls.Add(heightLabel);
             heightRow.Controls.Add(height);
             panel.Controls.Add(heightRow);
             var tip = new Label { AutoSize = true, ForeColor = Dark.DimText, Tag = "heading", BackColor = Color.Transparent, Margin = new Padding(0, 8, 0, 4),
-                Text = "Tip: 1080 runs best and still fills the whole screen width; 1200 and 1440 are sharper but\n" +
-                       "cost fps in big races. True wide turns on the native renderer and the UI at screen resolution." };
+                Text = "True wide uses the output shape and limits the scene to the pixel count of 3840 × 2160." };
             panel.Controls.Add(tip);
 
-            Action showHeight = delegate
-            {
-                height.Enabled = shape.SelectedIndex == 2;
-                heightLabel.Enabled = height.Enabled;
+            height.Name = "WideSceneHeight";
+            enableWideHeight = delegate(bool enabled) {
+                height.Enabled = heightLabel.Enabled = enabled;
             };
-            showHeight();
+            refreshSceneChoice();
             shape.SelectedIndexChanged += delegate
             {
                 try
@@ -740,16 +748,18 @@ namespace RyGT
                     {
                         WriteSetting("GPU", "wide_scene_height", heights[height.SelectedIndex]);
                         // What the true wide scene needs; the controls show it too.
-                        if (uiHiresBox != null) uiHiresBox.Checked = true; else WriteSetting("GPU", "ui_hires", true);
-                        if (rendererCombo != null) rendererCombo.SelectedIndex = 1; else WriteSetting("GPU", "native_renderer", true);
+                        WriteSetting("GPU", "ui_hires", true);
+                        if (uiHiresBox != null) uiHiresBox.Checked = true;
+                        WriteSetting("GPU", "native_renderer", true);
+                        if (rendererCombo != null) rendererCombo.SelectedIndex = 1;
                     }
                 }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-                showHeight();
+                refreshSceneChoice();
             };
             height.SelectedIndexChanged += delegate
             {
-                try { WriteSetting("GPU", "wide_scene_height", heights[height.SelectedIndex]); }
+                try { WriteSetting("GPU", "wide_scene_height", heights[height.SelectedIndex]); refreshSceneChoice(); }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
         }
@@ -774,7 +784,7 @@ namespace RyGT
             rendererCombo = renderer;
             renderer.SelectedIndexChanged += delegate
             {
-                try { WriteSetting("GPU", "native_renderer", renderer.SelectedIndex == 1); }
+                try { WriteSetting("GPU", "native_renderer", renderer.SelectedIndex == 1); refreshSceneChoice(); }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
             row.Controls.Add(label);
@@ -1293,8 +1303,7 @@ namespace RyGT
                         start.EnvironmentVariables["SHADGT_MANIFEST_PRETRANSLATE"] = "0";
                     }
                     // FEAT-GTS-433: the user's list last, so it wins; only the count is logged.
-                    int custom = CustomEnvironment.Apply(start, customEnv);
-                    ApplyNativeResolution(start, root, GameInfo.GTSport);
+                    int custom = ConfigureDisplayLaunch(start, root, GameInfo.GTSport, customEnv);
                     if (custom > 0) AppendSetupLog(root, GameInfo.GTSport.TitleId, custom + " custom environment variable(s) applied.");
                     started = Process.Start(start);
                 }

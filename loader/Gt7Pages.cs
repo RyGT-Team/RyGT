@@ -210,147 +210,8 @@ namespace RyGT
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
 
-            // NEO-GT7: GT7's own PS4 Pro mode and six of its settings. GPU.ps4_pro_mode: off (PS4), 4k (a Pro on
-            // a 4K TV), 1080p (a Pro on a 1080p TV), full (all six) or custom; the boxes are GPU.ps4_pro_checkerboard,
-            // ps4_pro_blur, ps4_pro_replays60, ps4_pro_replay_blur, ps4_pro_garage60 and ps4_pro_lod. A mode other
-            // than custom ticks the boxes as that console has them, and the boxes pick the mode back: as a console
-            // has them, that mode; any other choice, custom. Only the checkerboard box turns the Pro mode on in
-            // custom. StartGame turns them into RYGT_NEO, RYGT_NEO_TV and RYGT_NEO_EXTRAS (NEO-GT7-014 in the renderer).
-            var pro = Section(graphicsPage, "PS4 Pro mode");
-            var proKeys = new[] { "off", "4k", "1080p", "full", "custom" };
-            var proMode = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320, FlatStyle = FlatStyle.Flat };
-            proMode.Items.AddRange(new object[] { "PS4 (no Pro mode)", "PS4 Pro, 4K TV", "PS4 Pro, 1080p TV", "Full (everything on)", "Custom" });
-            proMode.SelectedIndex = Math.Max(0, Array.IndexOf(proKeys, ReadStringSetting("GPU", "ps4_pro_mode", "off")));
-            var proNote = noteLabel();
-            pro.Controls.Add(comboRow("Mode", proMode, proNote));
-            pro.Controls.Add(proNote);
-            // FEAT-GT7-180: NVIDIA DLSS and the 3200 x 1800 checkerboard picture are not offered together. The
-            // game rebuilds that picture from several frames itself, and DLSS on top cost about 6 ms of GPU time
-            // a frame on an RTX 4070 (the only GPU it was measured on). Picking one while the other is on is
-            // refused with a message; a configuration saved before with both gets a warning in both sections.
-            // The rule is this page's: a RYGT_NEO set from the Advanced page's own variables is not checked.
-            var proDlssWarning = noteLabel();
-            proDlssWarning.ForeColor = Dark.AccentText;
-            proDlssWarning.Text = "The 3200 x 1800 picture and NVIDIA DLSS are both on, and they do not go together. " +
-                                  "Untick the 3200 x 1800 box, or pick another upscaling method above.";
-            proDlssWarning.Visible = false;
-            pro.Controls.Add(proDlssWarning);
-            int lastPro = proMode.SelectedIndex;
-            bool proReverting = false;
-            var proBoxKeys = new[] { "ps4_pro_checkerboard", "ps4_pro_blur", "ps4_pro_replays60", "ps4_pro_replay_blur",
-                                     "ps4_pro_garage60", "ps4_pro_lod" };
-            var proBoxTexts = new[]
-            {
-                "3200 x 1800 with the game's own checkerboard and its 4K interface",
-                "Motion blur in races",
-                "Replays and photo mode at 60 fps instead of 30",
-                "Extra blur in replays and photo mode",
-                "High-quality garage scenes at 60 fps instead of 30",
-                "Level of detail kept 1.3 times farther (buildings, car geometry and decals)",
-            };
-            var proBoxes = new CheckBox[proBoxKeys.Length];
-            for (int i = 0; i < proBoxKeys.Length; i++) proBoxes[i] = AddOption(pro, proBoxTexts[i], "GPU", proBoxKeys[i], false);
-            pro.Controls.Add(Hint("The game's own PS4 Pro settings. A mode ticks the boxes as that console has them; change a box to make " +
-                                  "your own (Custom). Every box costs GPU time, the checkerboard most. Applies at the next game start."));
-            // Checked on an NVIDIA RTX 4070 only, where the game alone used about 5 GB of video memory in a race with
-            // everything on. With the checkerboard a race can drop below 30 fps. Without the checkerboard, the boxes
-            // run in the PS4 mode, except all five together: that is the PS4 Pro 1080p TV mode.
-            bool proApplying = false;
-            // FEAT-GT7-180: GPU.dlss_enabled can be saved on while the list shows another method (the NVIDIA files
-            // are missing). Turning the 3200 x 1800 picture on then switches that setting off, or adding the
-            // files later would bring both on without a word.
-            Action proDropUnshownDlss = delegate
-            {
-                if (method.SelectedIndex == 3 || !ReadSetting("GPU", "dlss_enabled", false)) return;
-                try { WriteSetting("GPU", "dlss_enabled", false); }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-            };
-            Action proDlssRefresh = delegate
-            {
-                bool both = proBoxes[0].Checked && method.SelectedIndex == 3;
-                methodProWarning.Visible = both;
-                proDlssWarning.Visible = both;
-            };
-            Action proRefresh = delegate
-            {
-                proDlssRefresh();
-                int p = proMode.SelectedIndex;
-                proNote.Text = p == 0 ? "Base PS4. The scene resolution is set in Display."
-                             : p == 1 ? "As a PS4 Pro on a 4K TV: the checkerboard picture, the other settings off."
-                             : p == 2 ? "As a PS4 Pro on a 1080p TV (PS4 Pro mode on): native 1920 x 1080, the five other settings on."
-                             : p == 3 ? "Everything on: the 4K TV picture with the 1080p TV's settings. The heaviest."
-                             : proBoxes[0].Checked ? "Your own choice of the boxes below, in the game's PS4 Pro mode (checkerboard)."
-                                                   : "Your own choice of the boxes below, in the PS4 mode (no checkerboard).";
-            };
-            // The boxes a mode ticks: 4K TV the checkerboard alone, 1080p TV the five others, Full all six.
-            Action proApply = delegate
-            {
-                int p = proMode.SelectedIndex;
-                if (p == 4) return;
-                proApplying = true;
-                for (int i = 0; i < proBoxes.Length; i++)
-                    proBoxes[i].Checked = p == 3 || (p == 1 && i == 0) || (p == 2 && i != 0);
-                proApplying = false;
-            };
-            // The mode the boxes make: none PS4, the checkerboard alone 4K TV, the five others 1080p TV, all six
-            // Full, anything else Custom (keeping the boxes as they are).
-            Func<int> proModeOfBoxes = delegate
-            {
-                int others = 0;
-                for (int i = 1; i < proBoxes.Length; i++) if (proBoxes[i].Checked) others++;
-                bool checkerboard = proBoxes[0].Checked;
-                if (!checkerboard && others == 0) return 0;
-                if (checkerboard && others == 0) return 1;
-                if (!checkerboard && others == proBoxes.Length - 1) return 2;
-                if (checkerboard && others == proBoxes.Length - 1) return 3;
-                return 4;
-            };
-            foreach (var box in proBoxes)
-            {
-                var changed = box;
-                box.CheckedChanged += delegate
-                {
-                    if (proApplying) return;
-                    if (changed == proBoxes[0] && changed.Checked && method.SelectedIndex == 3)
-                    {
-                        // FEAT-GT7-180: not with NVIDIA DLSS. The box is unticked before the message (its own
-                        // handler has already saved it ticked), and the mode stays as it is: Custom stays Custom.
-                        proApplying = true;
-                        changed.Checked = false;
-                        proApplying = false;
-                        MessageBox.Show(this, "The 3200 x 1800 picture cannot be used with NVIDIA DLSS: the game already rebuilds " +
-                                              "that picture itself. Pick another upscaling method first.");
-                        return;
-                    }
-                    if (changed == proBoxes[0] && changed.Checked) proDropUnshownDlss();
-                    int boxesMode = proModeOfBoxes();
-                    if (boxesMode != proMode.SelectedIndex) proMode.SelectedIndex = boxesMode;
-                    else proRefresh();
-                };
-            }
-            proMode.SelectedIndexChanged += delegate
-            {
-                int picked = proMode.SelectedIndex;
-                // FEAT-GT7-180: the modes with the checkerboard (4K TV, Full) are refused while NVIDIA DLSS is the
-                // upscaling method. Custom keeps the boxes as they are, and the box has its own check.
-                if (!proReverting && (picked == 1 || picked == 3) && method.SelectedIndex == 3 && !proBoxes[0].Checked)
-                {
-                    MessageBox.Show(this, "This mode draws the 3200 x 1800 picture, which cannot be used with NVIDIA DLSS: the game " +
-                                          "already rebuilds that picture itself. Pick another upscaling method first.");
-                    proReverting = true;
-                    proMode.SelectedIndex = lastPro;
-                    proReverting = false;
-                    return;
-                }
-                lastPro = picked;
-                if (picked == 1 || picked == 3) proDropUnshownDlss();
-                try { WriteSetting("GPU", "ps4_pro_mode", proKeys[Math.Max(0, proMode.SelectedIndex)]); }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-                proApply();
-                proRefresh();
-            };
-            proApply();
-            proRefresh();
+            Action proDlssRefresh;
+            var checkerboard = AddProSettings(graphicsPage, () => method.SelectedIndex == 3, methodProWarning, out proDlssRefresh);
 
             bool loading = true;
             Func<string, bool> has = name => File.Exists(Path.Combine(dlssDir, name));
@@ -469,7 +330,7 @@ namespace RyGT
                 }
                 // FEAT-GT7-180: not with the PS4 Pro 3200 x 1800 picture (unless a saved configuration already
                 // has both: lastMethod is then DLSS, and the warnings say so).
-                if (!loading && method.SelectedIndex == 3 && lastMethod != 3 && proBoxes[0].Checked)
+                if (!loading && method.SelectedIndex == 3 && lastMethod != 3 && checkerboard.Checked)
                 {
                     MessageBox.Show(this, "NVIDIA DLSS cannot be used with the PS4 Pro 3200 x 1800 picture: the game already rebuilds " +
                                           "that picture itself. In PS4 Pro mode, pick \"PS4 (no Pro mode)\" or \"PS4 Pro, 1080p TV\" first, " +
@@ -1378,39 +1239,9 @@ namespace RyGT
                     DlssDetailVariables(GpuSetting(root, "dlss_texture_detail") as string, out dlssBias, out dlssExtra);
                     if (dlssBias != null) start.EnvironmentVariables["RYGT_DLSS_TEMPORAL_MIP_BIAS"] = dlssBias;
                     if (dlssExtra != null) start.EnvironmentVariables["RYGT_DLSS_TEMPORAL_MIP_EXTRA"] = dlssExtra;
-                    // PS4 Pro mode from the Graphics page (NEO-GT7). PS4 (off) sets nothing, so a launcher
-                    // script's own values stay. The other modes set or remove all three variables themselves:
-                    // RYGT_NEO=1 with the checkerboard (4K TV, Full, Custom with its box), plus RYGT_NEO_TV=1080
-                    // for the 1080p TV; RYGT_NEO_EXTRAS lists the five other settings when they differ from what
-                    // the game picks by itself (none in the PS4 and 4K TV presets, all five in the 1080p TV one).
-                    // The modes other than custom are read as the console has them, not from the boxes.
-                    string proSetting = GpuSetting(root, "ps4_pro_mode") as string ?? "off";
-                    if (proSetting == "4k" || proSetting == "1080p" || proSetting == "full" || proSetting == "custom")
-                    {
-                        Func<string, bool> proBox = key => { object on = GpuSetting(root, key); return on is bool && (bool)on; };
-                        bool custom = proSetting == "custom";
-                        bool tv1080 = proSetting == "1080p";
-                        bool neo = tv1080 || (custom ? proBox("ps4_pro_checkerboard") : true);
-                        if (neo) start.EnvironmentVariables["RYGT_NEO"] = "1";
-                        else start.EnvironmentVariables.Remove("RYGT_NEO");
-                        if (tv1080) start.EnvironmentVariables["RYGT_NEO_TV"] = "1080";
-                        else start.EnvironmentVariables.Remove("RYGT_NEO_TV");
-                        var proOptionsOn = new List<string>();
-                        var proOptionNames = new[] { "ps4_pro_blur", "blur", "ps4_pro_replays60", "replays60",
-                                                     "ps4_pro_replay_blur", "replayblur", "ps4_pro_garage60", "garage60",
-                                                     "ps4_pro_lod", "lod" };
-                        for (int i = 0; i < proOptionNames.Length; i += 2)
-                        {
-                            bool on = custom ? proBox(proOptionNames[i]) : proSetting == "full";
-                            if (on) proOptionsOn.Add(proOptionNames[i + 1]);
-                        }
-                        if (proOptionsOn.Count != 0) start.EnvironmentVariables["RYGT_NEO_EXTRAS"] = string.Join(",", proOptionsOn);
-                        else start.EnvironmentVariables.Remove("RYGT_NEO_EXTRAS");
-                    }
                     // FEAT-GTS-254: the Advanced page's switches and other variables last, so they win.
                     TrophyStore.ApplyEnvironment(root, start);
-                    int customCount = CustomEnvironment.Apply(start, new Settings(GameInfo.GT7.IniPath(root)).Env);
-                    ApplyNativeResolution(start, root, GameInfo.GT7);
+                    int customCount = ConfigureDisplayLaunch(start, root, GameInfo.GT7, new Settings(GameInfo.GT7.IniPath(root)).Env);
                     if (customCount > 0) AppendSetupLog(root, GameInfo.GT7.TitleId, customCount + " custom environment variable(s) applied.");
                     started = Process.Start(start);
                 }
