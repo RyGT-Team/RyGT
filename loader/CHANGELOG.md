@@ -6,6 +6,12 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.21 - 2026-11-24
+
+* FEAT-RT-032: GT7's Display page gets a Game language setting (RyGT #113). The game follows the console's
+  language, which was always English unless RTY_SYSTEM_LANGUAGE was set by hand; the chosen language is now
+  passed as RYGT_SYSTEM_LANGUAGE.
+
 ## 0.3.20 - 2026-11-24
 
 * FEAT-RT-031: Add an experimental native Thrustmaster T300RS profile for GT7 and GT Sport.

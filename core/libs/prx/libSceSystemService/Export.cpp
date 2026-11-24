@@ -13,10 +13,12 @@
 
 namespace {
 
-// The system language reported to the title: RTY_SYSTEM_LANGUAGE, either a PS4 language id
-// (0-30) or "es" (Spain) / "es-419" (Latin America); English (US) when unset or not understood.
+// The system language reported to the title: RYGT_SYSTEM_LANGUAGE (FEAT-RT-032: GT7's launcher sets
+// it from its Display page), or RTY_SYSTEM_LANGUAGE as before, either a PS4 language id (0-30) or
+// "es" (Spain) / "es-419" (Latin America); English (US) when unset or not understood.
 int SystemLanguage() {
-    const char* text = std::getenv("RTY_SYSTEM_LANGUAGE");
+    const char* text = std::getenv("RYGT_SYSTEM_LANGUAGE");
+    if (text == nullptr || *text == '\0') text = std::getenv("RTY_SYSTEM_LANGUAGE");
     if (text == nullptr || *text == '\0') return SYSTEM_SERVICE_PARAM_LANG_ENGLISH_US;
     if (std::strcmp(text, "es") == 0 || std::strcmp(text, "es-ES") == 0) return SYSTEM_SERVICE_PARAM_LANG_SPANISH;
     if (std::strcmp(text, "es-419") == 0 || std::strcmp(text, "es-LA") == 0) return SYSTEM_SERVICE_PARAM_LANG_SPANISH_LA;

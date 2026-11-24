@@ -265,4 +265,4 @@ still work so that previously configured setups keep running:
 | `RTY_NET_ENABLE=1` | Experimental: activate the RytyNet online-mode bridge (see [RytyNet](RYTNET.md)). `0` forces it off. |
 | `RTY_NET_LOG=1` | Log RytyNet decisions and requests to stderr (`[rytynet]` lines). |
 | `RTY_GPU_VENDOR`, `RTY_GPU_INDEX` | GPU selection overrides for mixed-GPU systems (see [GPU support](../dev/GPU_SUPPORT.md)). |
-| `RTY_SYSTEM_LANGUAGE` | System language reported to the title: a PS4 language id (0-30), or `es` (Spain) / `es-419` (Latin America). English (US) when unset or not understood. |
+| `RYGT_SYSTEM_LANGUAGE` | System language reported to the title: a PS4 language id (0-30), or `es` (Spain) / `es-419` (Latin America). English (US) when unset or not understood. GT7's launcher sets it from **Display > Game language**. `RTY_SYSTEM_LANGUAGE`, its earlier name, is still read when it is unset. |
