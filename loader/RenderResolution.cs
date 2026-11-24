@@ -61,8 +61,20 @@ namespace RyGT
             "game", "display", "1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160"
         };
 
+        public const string UltrawideWindow = "ultrawide_window";
+
+        static bool SupportsWideScene(Size size)
+        {
+            // Use the same width alignment and UHD pixel budget as GT Sport's True wide.
+            return size.Width >= 640 && size.Width <= 7680 && size.Width % 16 == 0 &&
+                size.Height >= 360 && size.Height <= 2160 &&
+                (double)size.Width / size.Height > 16.0 / 9 + 0.01 && size.Width < size.Height * 6 &&
+                (long)size.Width * size.Height <= 3840L * 2160;
+        }
+
         public static Size? NativeSize(string mode, Size output)
         {
+            if (mode == UltrawideWindow) return SupportsWideScene(output) ? (Size?)output : null;
             if (mode == "display") {
                 // Keep the guest's 16:9 scene inside the output. Display modes and camera
                 // aspect are independent; UHD is the largest validated guest allocation.
@@ -108,8 +120,9 @@ namespace RyGT
 
         public static void ConfigureNative(ProcessStartInfo start, string root, bool gt7, string patchVariable, Size size)
         {
-            if (size.Width < 16 || size.Width > 3840 || size.Height < 9 || size.Height > 2160 ||
-                size.Width * 9 != size.Height * 16) throw new ArgumentOutOfRangeException("size");
+            bool wide = gt7 && SupportsWideScene(size);
+            if (!wide && (size.Width < 16 || size.Width > 3840 || size.Height < 9 || size.Height > 2160 ||
+                size.Width * 9 != size.Height * 16)) throw new ArgumentOutOfRangeException("size");
             if (!String.IsNullOrEmpty(start.EnvironmentVariables["SHADGT_PATCH"]) ||
                 !String.IsNullOrEmpty(start.EnvironmentVariables["RYGT_PATCH"]))
                 throw new InvalidOperationException("Native resolution conflicts with another game patch or scene scale.");
@@ -122,6 +135,11 @@ namespace RyGT
                     }
                 }
                 start.EnvironmentVariables[patchVariable] = String.Join(",", patches);
+            }
+            if (wide) {
+                string aspect = size.Width + ":" + size.Height;
+                start.EnvironmentVariables["RYGT_ASPECT"] = aspect;
+                start.EnvironmentVariables["SHADGT_ASPECT"] = aspect;
             }
             // The larger pools are on the base-console path in both games. Keep the Pro
             // checkerboard and independent viewport experiments out of this process.

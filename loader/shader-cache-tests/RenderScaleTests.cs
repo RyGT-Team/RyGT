@@ -6,6 +6,12 @@ static void Main(){
 Check(RenderResolution.NativeSize("display", new Size(2560,1440)) == new Size(2560,1440), "match 1440p");
 Check(RenderResolution.NativeSize("display", new Size(1280,800)) == new Size(1280,720), "fit 16:10 output");
 Check(RenderResolution.NativeSize("display", new Size(5120,1440)) == new Size(2560,1440), "fit ultrawide output");
+foreach (int width in new[] { 3440, 5120 }) {
+    var wide = new Size(width, 1440);
+    Check(RenderResolution.NativeSize(RenderResolution.UltrawideWindow, wide) == wide, "native ultrawide " + width);
+}
+Check(!RenderResolution.NativeSize(RenderResolution.UltrawideWindow, new Size(2560,1440)).HasValue, "16:9 output");
+Check(!RenderResolution.NativeSize(RenderResolution.UltrawideWindow, new Size(7680,2160)).HasValue, "wide pool limit");
 Check(RenderResolution.NativeSize("display", new Size(7680,4320)) == new Size(3840,2160), "UHD guest allocation limit");
 Check(RenderResolution.NativeSize("3840x2160", new Size(1280,720)) == new Size(3840,2160), "fixed scene independent of window");
 Check(!RenderResolution.NativeSize("game", new Size(1280,720)).HasValue, "keep console settings");
