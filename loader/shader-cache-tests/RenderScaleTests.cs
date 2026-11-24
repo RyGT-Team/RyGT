@@ -3,6 +3,12 @@ namespace RyGT { class RenderScaleTests {
 static void Check(bool value,string message){if(!value)throw new Exception(message);}
 static void SizeIs(int w,int h,string p,int sw,int sh){Check(RenderResolution.Calculate(w,h,p)==new Size(sw,sh),p+" size");}
 static void Main(){
+Check(RenderResolution.NativeSize("display", new Size(2560,1440)) == new Size(2560,1440), "match 1440p");
+Check(RenderResolution.NativeSize("display", new Size(1280,800)) == new Size(1280,720), "fit 16:10 output");
+Check(RenderResolution.NativeSize("display", new Size(5120,1440)) == new Size(2560,1440), "fit ultrawide output");
+Check(RenderResolution.NativeSize("display", new Size(7680,4320)) == new Size(3840,2160), "UHD guest allocation limit");
+Check(RenderResolution.NativeSize("3840x2160", new Size(1280,720)) == new Size(3840,2160), "fixed scene independent of window");
+Check(!RenderResolution.NativeSize("game", new Size(1280,720)).HasValue, "keep console settings");
 SizeIs(1920,1080,"performance",960,540);SizeIs(1920,1080,"quality",1280,720);SizeIs(1920,1080,"ultra_performance",640,360);SizeIs(1920,1080,"balanced",1136,639);SizeIs(3840,2160,"quality",2560,1440);SizeIs(3840,2160,"dlaa",3840,2160);SizeIs(1280,720,"performance",640,360);
 string dir=Path.Combine(Path.GetTempPath(),"RyGT-render-scale-"+Guid.NewGuid());Directory.CreateDirectory(dir);
 try { byte[] pe=new byte[512];Action<int,int> put=(at,n)=>Array.Copy(BitConverter.GetBytes(n),0,pe,at,4);put(0x3c,0x80);pe[0x86]=3;int table=0x98;int[] rvas={0x1988ad3,0x1988ab0,0x1988ab9};string[] signatures={"48b98007000038040000","8b0d72ea2301","8b0d6dea2301"};for(int i=0;i<3;i++){int at=table+i*40,raw=400+i*32;put(at+12,rvas[i]);put(at+16,signatures[i].Length/2);put(at+20,raw);for(int j=0;j<signatures[i].Length/2;j++)pe[raw+j]=Convert.ToByte(signatures[i].Substring(j*2,2),16);}File.WriteAllBytes(Path.Combine(dir,"GTSport.exe"),pe);

@@ -150,12 +150,28 @@ namespace RyGT
             return pages.Keys.ToList();
         }
 
+        static void CheckSceneSelector(LoaderForm form, GameInfo game, string root)
+        {
+            var pages = (Dictionary<string, System.Windows.Forms.Panel>)typeof(LoaderForm)
+                .GetField("pages", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(form);
+            var display = pages["Display"];
+            var scene = (System.Windows.Forms.ComboBox)display.Controls.Find("SceneResolution", true).Single();
+            var output = (System.Windows.Forms.ComboBox)display.Controls.Find("OutputResolution", true).Single();
+            Check((string)scene.SelectedItem == "Game default", "Existing profiles use the game's scene size");
+            Check(output.Items.Contains("3840 x 2160"), "4K is a selectable window size");
+            scene.SelectedItem = "2560 x 1440";
+            var config = File.ReadAllText(game.ConfigPath(root));
+            Check(config.Contains("2560x1440"), "Scene preset persisted for " + game.TitleId);
+            scene.SelectedIndex = 0;
+        }
+
         static void FormChecks(string root)
         {
             string gts = Folder(root, "form-gts"), gt7 = Folder(root, "form-gt7");
             File.WriteAllText(Path.Combine(gt7, "RyGT7.ini"), "");
             using (var form = new LoaderForm(GameKind.GTSport, gts))
             {
+                CheckSceneSelector(form, GameInfo.GTSport, gts);
                 var pages = Pages(form);
                 Check(pages.Contains("Display") && pages.Contains("Graphics") && pages.Contains("Shaders") && pages.Contains("Controls") &&
                       pages.Contains("Advanced") && !pages.Contains("Online") && !pages.Contains("Account"), "GT Sport's pages");
@@ -169,6 +185,7 @@ namespace RyGT
             }
             using (var form = new LoaderForm(GameKind.GT7, gt7))
             {
+                CheckSceneSelector(form, GameInfo.GT7, gt7);
                 var pages = Pages(form);
                 Check(pages.Contains("Online") && pages.Contains("Account") && pages.Contains("Controls") && pages.Contains("Graphics"), "GT7's pages");
                 // ryGT7's defaults are written into GT7's own config, as ryGT7's launcher did.
