@@ -173,6 +173,8 @@ namespace RyGT
             Check(output.Enabled && (string)output.SelectedItem == "1280 x 720", "Window size is restored after borderless");
             var graphics = pages["Graphics"];
             var pro = (System.Windows.Forms.ComboBox)graphics.Controls.Find("ProMode", true).Single();
+            var warning = graphics.Controls.Find("ProReconstructionWarning", true).Single();
+            var guide = graphics.Controls.Find("ImageQualityGuide", true).Single();
             var checker = (System.Windows.Forms.CheckBox)graphics.Controls.Find("ps4_pro_checkerboard", true).Single();
             bool gts = game.Kind == GameKind.GTSport;
             Check(graphics.Controls.Find("ps4_pro_garage60", true).Length == (gts ? 0 : 1) &&
@@ -182,6 +184,9 @@ namespace RyGT
             Check(scene.Enabled && !checker.Checked, "Pro with a 1080p TV allows fixed resolution");
             pro.SelectedIndex = 1;
             Check(!scene.Enabled && preview.Text.Contains("checkerboard"), "Pro with a 4K TV owns the scene");
+            Check(warning.Text.Contains("DLSS") && warning.Text.Contains("Game default") &&
+                  preview.Text.Contains("3840 × 2160") && preview.Text.Contains("1080p TV"),
+                  "Checkerboard explains the separate paths to native 4K and DLSS");
             pro.SelectedIndex = 3;
             Check(!scene.Enabled, "Full excludes fixed resolution");
             pro.SelectedIndex = 4;
@@ -214,11 +219,21 @@ namespace RyGT
                   "Leaving wide mode restores a centered image");
             pro.SelectedIndex = 0;
             scene.SelectedIndex = 0;
+            var method = (System.Windows.Forms.ComboBox)graphics.Controls.Find("UpscalingMethod", true).Single();
+            method.SelectedItem = "NVIDIA DLSS";
+            Check((string)method.SelectedItem == "NVIDIA DLSS" && guide.Text.Contains(gts ? "Start with Quality" : "Auto (window size)"),
+                  "DLSS guidance matches this game's quality settings");
+            method.SelectedItem = "Off";
+            Check(guide.Text.Contains("native 4K"), "Upscaling Off explains native 4K");
         }
 
         static void FormChecks(string root)
         {
             string gts = Folder(root, "form-gts"), gt7 = Folder(root, "form-gt7");
+            foreach (var install in new[] { gts, gt7 }) {
+                string dlss = Folder(install, "dlss");
+                foreach (var dll in new[] { "nvngx_dlss.dll", "ryGT_dlss.dll" }) File.WriteAllText(Path.Combine(dlss, dll), "");
+            }
             File.WriteAllText(Path.Combine(gt7, "RyGT7.ini"), "");
             using (var form = new LoaderForm(GameKind.GTSport, gts))
             {

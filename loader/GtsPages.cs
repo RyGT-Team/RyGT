@@ -434,12 +434,23 @@ namespace RyGT
 
             var upscalerCard = Section(graphicsPage, "Upscaler");
             var upscaler = combo();
+            upscaler.Name = "UpscalingMethod";
             upscaler.Items.AddRange(new object[] { "Off", "AMD FSR 4", "AMD FSR 3", "AMD FSR 1", "NVIDIA DLSS", "Intel XeSS" });
             upscaler.SelectedIndex = dlss.Checked ? 4 : !fsr.Checked ? 0 : !fsr3.Checked ? 3 : version.SelectedIndex == 1 ? 1 : version.SelectedIndex == 2 ? 5 : 2;
+            int lastUpscaler = upscaler.SelectedIndex;
+            CheckBox checkerboard = null;
             upscaler.SelectedIndexChanged += delegate
             {
                 if (syncing) return;
                 int pick = upscaler.SelectedIndex;
+                if (pick == 4 && checkerboard != null && checkerboard.Checked)
+                {
+                    syncing = true;
+                    upscaler.SelectedIndex = lastUpscaler;
+                    syncing = false;
+                    MessageBox.Show(this, CheckerboardWarning + " " + UseDlssGuide, "PS4 Pro and DLSS");
+                    return;
+                }
                 if ((pick == 4 && !dlss.Enabled) || (pick == 5 && !File.Exists(Path.Combine(root, "libxess.dll"))))
                 {
                     MessageBox.Show(this, "Download its files first, under Libraries.");
@@ -455,15 +466,19 @@ namespace RyGT
                     fsr3.Checked = pick != 3;
                     if (pick != 3) version.SelectedIndex = pick == 1 ? 1 : pick == 5 ? 2 : 0;
                 }
+                lastUpscaler = pick;
             };
             row(upscalerCard, "Upscaler", upscaler);
+            var methodProWarning = Hint("");
+            methodProWarning.ForeColor = Dark.AccentText;
+            upscalerCard.Controls.Add(methodProWarning);
             // Below 100% lowers the scene (render scale); above it the upscaler's output grows.
             var qualities = new[] {
-                new[] { "Ultra Performance - 33% (640 x 360)", "0", "" },
-                new[] { "Performance - 50% (960 x 540)", "1", "" },
-                new[] { "Balanced - 59% (1136 x 639)", "2", "" },
-                new[] { "Quality - 67% (1280 x 720)", "3", "" },
-                new[] { "Ultra Quality - 77% (1472 x 828)", "4", "" },
+                new[] { "Ultra Performance - 33%", "0", "" },
+                new[] { "Performance - 50%", "1", "" },
+                new[] { "Balanced - 59%", "2", "" },
+                new[] { "Quality - 67%", "3", "" },
+                new[] { "Ultra Quality - 77%", "4", "" },
                 new[] { "Native - 100% (1920 x 1080)", "", "1" },
                 new[] { "Supersampling - 150% (2880 x 1620)", "", "1.5" },
                 new[] { "Supersampling - 170% (3264 x 1836)", "", "1.7" },
@@ -483,10 +498,22 @@ namespace RyGT
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
             row(upscalerCard, "Quality / Supersampling", quality);
+            var qualityGuide = Hint("");
+            qualityGuide.Name = "ImageQualityGuide";
+            upscalerCard.Controls.Add(qualityGuide);
+            Action updateQualityGuide = delegate {
+                qualityGuide.Text = upscaler.SelectedIndex == 4
+                    ? UseDlssGuide + " Start with Quality. Try Ultra Quality for more detail, or Balanced then Performance if you need more FPS."
+                    : upscaler.SelectedIndex == 0 ? Native4kGuide +
+                      (sceneBox.Checked ? " Set Quality / Supersampling to Native (100%) to turn off experimental scaling." : "")
+                    : "Below 100%, the percentage sets the render size relative to the display. Above 100%, it sets the upscaler's output relative to the game's image.";
+            };
+            upscaler.SelectedIndexChanged += delegate { updateQualityGuide(); };
+            quality.SelectedIndexChanged += delegate { updateQualityGuide(); };
+            updateQualityGuide();
             // PERF-210: AMD Anti-Lag (VK_AMD_anti_lag; AMD GPUs whose driver has it). Frame
             // generation paces its own frames, so Anti-Lag is off while it is on.
             var antiLag = AddOption(upscalerCard, "", "GPU", "anti_lag", false);
-            upscalerCard.Controls.Add(Hint("Sizes are for 1080p output. Scene scaling needs a game restart."));
 
             var frameCard = Section(graphicsPage, "Frame generation");
             var frames = combo();
@@ -549,7 +576,7 @@ namespace RyGT
             var extras = Section(graphicsPage, "Enhancements");
             AddOption(extras, "Disable motion blur", "GPU", "disable_motion_blur", false);
             Action refreshProWarning;
-            var checkerboard = AddProSettings(graphicsPage, () => dlss.Checked, null, out refreshProWarning);
+            checkerboard = AddProSettings(graphicsPage, () => dlss.Checked, methodProWarning, out refreshProWarning);
             dlss.CheckedChanged += delegate {
                 if (dlss.Checked && checkerboard.Checked) {
                     dlss.Checked = false;

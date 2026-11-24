@@ -10,6 +10,9 @@ namespace RyGT
     partial class LoaderForm
     {
         static readonly string[] ProModes = { "off", "4k", "1080p", "full", "custom" };
+        const string Native4kGuide = "For native 4K, choose PS4 Pro, 1080p TV, set upscaling to Off and choose 3840 × 2160 under Display → Render resolution.";
+        const string CheckerboardWarning = "PS4 Pro, 4K TV uses the game's checkerboard reconstruction. DLSS and custom render resolutions are unavailable with checkerboard on.";
+        const string UseDlssGuide = "For DLSS, select PS4 (no Pro mode) and set Display → Render resolution to Game default.";
 
         sealed class ProOption
         {
@@ -101,9 +104,8 @@ namespace RyGT
             // refused with a message; a configuration saved before with both gets a warning in both sections.
             // The rule is this page's: a RYGT_NEO set from the Advanced page's own variables is not checked.
             var proDlssWarning = Hint("");
+            proDlssWarning.Name = "ProReconstructionWarning";
             proDlssWarning.ForeColor = Dark.AccentText;
-            proDlssWarning.Text = "The 3200 x 1800 picture and NVIDIA DLSS are both on, and they do not go together. " +
-                                  "Untick the 3200 x 1800 box, or pick another upscaling method above.";
             proDlssWarning.Visible = false;
             pro.Controls.Add(proDlssWarning);
             int lastPro = proMode.SelectedIndex;
@@ -116,8 +118,7 @@ namespace RyGT
                 box.Name = option.Key;
                 return box;
             }).ToArray();
-            pro.Controls.Add(Hint("The game's own PS4 Pro settings. A mode ticks the boxes as that console has them; change a box to make " +
-                                  "your own (Custom). Every box costs GPU time, the checkerboard most. Applies at the next game start."));
+            pro.Controls.Add(Hint("Change individual effects to create a custom preset. Changes apply at the next game start."));
             bool proApplying = false;
             // FEAT-GT7-180: GPU.dlss_enabled can be saved on while the list shows another method (the NVIDIA files
             // are missing). Turning the 3200 x 1800 picture on then switches that setting off, or adding the
@@ -130,15 +131,18 @@ namespace RyGT
             };
             Action proDlssRefresh = delegate
             {
-                bool both = proBoxes[0].Checked && dlssSelected();
-                if (methodProWarning != null) methodProWarning.Visible = both;
-                proDlssWarning.Visible = both;
+                string warning = proBoxes[0].Checked && dlssSelected()
+                    ? "Settings conflict. Turn DLSS off to keep the game's 4K TV checkerboard mode. " + UseDlssGuide
+                    : CheckerboardWarning + " " + UseDlssGuide;
+                proDlssWarning.Text = methodProWarning.Text = warning;
+                proDlssWarning.Visible = methodProWarning.Visible = proBoxes[0].Checked;
             };
             Action proRefresh = delegate
             {
                 proDlssRefresh();
                 if (refreshSceneChoice != null) refreshSceneChoice();
                 int p = proMode.SelectedIndex;
+                proNote.Visible = !proBoxes[0].Checked || p == 3;
                 proNote.Text = p == 0 ? "Base PS4. Choose the render resolution in Display."
                              : p == 1 ? "PS4 Pro on a 4K TV. The game sets the render resolution for checkerboard rendering."
                              : p == 2 ? "PS4 Pro on a 1080p TV. Choose the render resolution in Display. The effects below are enabled."
@@ -182,8 +186,7 @@ namespace RyGT
                         proApplying = true;
                         changed.Checked = false;
                         proApplying = false;
-                        MessageBox.Show(this, "The 3200 x 1800 picture cannot be used with NVIDIA DLSS: the game already rebuilds " +
-                                              "that picture itself. Pick another upscaling method first.");
+                        MessageBox.Show(this, CheckerboardWarning + " Turn DLSS off first to use checkerboard.", "PS4 Pro and DLSS");
                         return;
                     }
                     if (changed == proBoxes[0] && changed.Checked) proDropUnshownDlss();
@@ -199,8 +202,7 @@ namespace RyGT
                 // upscaling method. Custom keeps the boxes as they are, and the box has its own check.
                 if (!proReverting && (picked == 1 || picked == 3) && dlssSelected() && !proBoxes[0].Checked)
                 {
-                    MessageBox.Show(this, "This mode draws the 3200 x 1800 picture, which cannot be used with NVIDIA DLSS: the game " +
-                                          "already rebuilds that picture itself. Pick another upscaling method first.");
+                    MessageBox.Show(this, CheckerboardWarning + " Turn DLSS off first to use this mode.", "PS4 Pro and DLSS");
                     proReverting = true;
                     proMode.SelectedIndex = lastPro;
                     proReverting = false;

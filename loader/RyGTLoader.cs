@@ -3777,8 +3777,9 @@ namespace RyGT
                 var scene = RenderResolution.NativeSize(nativeModes[native.SelectedIndex], output);
                 string pixels = output.Width + " × " + output.Height;
                 string displayed = (screen.SelectedIndex == 0 ? "Window " : "Display ") + pixels + ".";
+                effective.ForeColor = checker ? Dark.AccentText : Dark.DimText;
                 if (checker) {
-                    effective.Text = "PS4 Pro on a 4K TV uses the game's checkerboard rendering. " + displayed;
+                    effective.Text = CheckerboardWarning + " " + Native4kGuide + " " + displayed;
                 } else {
                     int h = ReadIntSetting("GPU", "wide_scene_height", 0);
                     if (h == 0) int.TryParse(ReadStringSetting("GPU", "wide_scene_height", "1080"), out h);

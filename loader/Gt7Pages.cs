@@ -64,18 +64,16 @@ namespace RyGT
                 AutoSize = true, MaximumSize = new Size(860, 0), BackColor = Color.Transparent, ForeColor = Dark.DimText,
                 Tag = "heading", Margin = new Padding(2, 2, 0, 4)
             };
-            var method = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
+            var method = new DarkComboBox { Name = "UpscalingMethod", DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
             method.Items.AddRange(new object[] { "Off", "AMD FSR 1", "AMD FSR 3.1", "NVIDIA DLSS" });
             var methodNote = noteLabel();
+            methodNote.Name = "ImageQualityGuide";
             upscaling.Controls.Add(comboRow("Method", method, methodNote));
             upscaling.Controls.Add(methodNote);
             // FEAT-GT7-180: shown when a configuration saved before has both NVIDIA DLSS and the PS4 Pro
             // 3200 x 1800 picture on (see the PS4 Pro mode section).
             var methodProWarning = noteLabel();
             methodProWarning.ForeColor = Dark.AccentText;
-            methodProWarning.Text = "NVIDIA DLSS and the PS4 Pro 3200 x 1800 picture are both on, and they do not go together. " +
-                                    "Pick another method here, or in PS4 Pro mode below pick \"PS4 (no Pro mode)\" or " +
-                                    "\"PS4 Pro, 1080p TV\", or untick the 3200 x 1800 box.";
             methodProWarning.Visible = false;
             upscaling.Controls.Add(methodProWarning);
 
@@ -237,10 +235,10 @@ namespace RyGT
             {
                 bool dlssOk = dlssReady(), dlssgOk = dlssgReady();
                 int m = method.SelectedIndex;
-                methodNote.Text = m == 0 ? "The picture is stretched to the window as it is."
+                methodNote.Text = m == 0 ? Native4kGuide
                                 : m == 1 ? "Any GPU. Light and simple."
                                 : m == 2 ? (fsr3Installed ? "Any GPU. Sharper than FSR 1." : "Needs amd_fidelityfx_vk.dll next to GT7.exe.")
-                                : dlssOk ? "RTX cards only. The best image."
+                                : dlssOk ? "For DLSS on RTX, use Game default render resolution and start with Auto (window size)."
                                          : "RTX cards only. Download the NVIDIA files below first.";
                 bool scaler = m == 2 || m == 3;
                 quality.Enabled = scaler;
@@ -248,12 +246,12 @@ namespace RyGT
                 if (!scaler)
                     qualityNote.Text = m == 1 ? "FSR 1 always scales to the window size." : "Pick FSR 3.1 or DLSS to choose a quality.";
                 else if (q == 0)
-                    qualityNote.Text = "1920 x 1080, scaled to the window size (only when the window is bigger).";
+                    qualityNote.Text = "Auto targets the window size (1920 × 1080 → 3840 × 2160 in a 4K window).";
                 else
                 {
                     int w = (int)Math.Round(1920 * qualityScales[q]), h = (int)Math.Round(1080 * qualityScales[q]);
                     qualityNote.Text = q == 1 ? "1920 x 1080 at its own size, anti-aliased, then fitted to the window."
-                                              : "1920 x 1080 -> " + w + " x " + h + ", then fitted to the window. Higher is sharper and costs more GPU.";
+                                              : "Base PS4 renders at 1920 × 1080 and reconstructs to " + w + " × " + h + ".";
                 }
                 rcas.Visible = m == 1 || m == 2;
                 // FEAT-GT7-181 (the row on screen is the list's parent, as for the multiplier below).
@@ -332,9 +330,7 @@ namespace RyGT
                 // has both: lastMethod is then DLSS, and the warnings say so).
                 if (!loading && method.SelectedIndex == 3 && lastMethod != 3 && checkerboard.Checked)
                 {
-                    MessageBox.Show(this, "NVIDIA DLSS cannot be used with the PS4 Pro 3200 x 1800 picture: the game already rebuilds " +
-                                          "that picture itself. In PS4 Pro mode, pick \"PS4 (no Pro mode)\" or \"PS4 Pro, 1080p TV\" first, " +
-                                          "or untick the 3200 x 1800 box.");
+                    MessageBox.Show(this, CheckerboardWarning + " " + UseDlssGuide, "PS4 Pro and DLSS");
                     method.SelectedIndex = Math.Max(0, lastMethod);
                     return;
                 }
