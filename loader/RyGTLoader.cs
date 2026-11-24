@@ -737,6 +737,8 @@ namespace RyGT
         /// The row's line goes elsewhere (under a hint that belongs to the setting).
         public bool NoLine;
 
+        public string Caption { set { label.Text = value; } }
+
         public SettingRow(string text, Control control)
         {
             this.control = control;
@@ -3657,11 +3659,11 @@ namespace RyGT
             if (!size.HasValue) return;
             if (Equals(setting("fsr_enabled"), true) ||
                 Equals(setting("dlss_enabled"), true))
-                throw new InvalidOperationException("Select Off for upscaling when choosing a native scene resolution.");
+                throw new InvalidOperationException("Turn off upscaling to choose a render resolution.");
 
             if (Equals(setting("native_renderer"), false) ||
                 Equals(setting("experimental_render_scale"), true))
-                throw new InvalidOperationException("Choose the Native renderer and turn off experimental viewport scaling for a fixed scene resolution.");
+                throw new InvalidOperationException("Choose the Native renderer and turn off experimental viewport scaling for a fixed render resolution.");
 
             string renderer = Path.Combine(root, SwitchWalker.RendererFile);
             string patchVariable = "SHADGT_PATCH";
@@ -3669,7 +3671,7 @@ namespace RyGT
             {
                 patchVariable = "RYGT_PATCH";
                 if (!App0Layout.FileContains(renderer, patchVariable + "\0"))
-                    throw new InvalidOperationException("This renderer does not support native scene resolutions.");
+                    throw new InvalidOperationException("This renderer does not support custom render resolutions.");
             }
             RenderResolution.ConfigureNative(start, root, game.Kind == GameKind.GT7, patchVariable, size.Value, pro == "1080p");
             AppendSetupLog(root, game.TitleId, "Native scene " + size.Value.Width + " x " + size.Value.Height +
@@ -3687,12 +3689,12 @@ namespace RyGT
             var modes = DisplayModes(out desktopWidth, out desktopHeight, out desktopHz);
 
             var screenRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
-            var screen = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
+            var screen = new DarkComboBox { Name = "DisplayMode", DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
             screen.Items.AddRange(new object[] { "Windowed", "Borderless fullscreen", "Exclusive fullscreen" });
             bool full = ReadSetting("GPU", "full_screen", false);
             bool exclusive = ReadStringSetting("GPU", "full_screen_mode", "Windowed") == "Fullscreen";
             screen.SelectedIndex = !full ? 0 : exclusive ? 2 : 1;
-            screenRow.Controls.Add(new Label { Text = "Screen", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) });
+            screenRow.Controls.Add(new Label { Text = "Display mode", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) });
             screenRow.Controls.Add(screen);
             panel.Controls.Add(screenRow);
 
@@ -3703,6 +3705,8 @@ namespace RyGT
                 ReadIntSetting("GPU", "window_height", 0), desktopWidth, desktopHeight);
             long wanted = ((long)window.Width << 32) | (uint)window.Height;
             Action<long> fillSizes = delegate(long selected) {
+                if (screen.SelectedIndex == 1 && desktopWidth > 0 && desktopHeight > 0)
+                    selected = ((long)desktopWidth << 32) | (uint)desktopHeight;
                 keys.Clear();
                 keys.AddRange(modes.Keys);
                 if (screen.SelectedIndex == 0) {
@@ -3727,7 +3731,8 @@ namespace RyGT
             resolutionRow.Controls.Add(resolution);
             var customSize = new Button { Text = "Custom…", AutoSize = true, FlatStyle = FlatStyle.Flat };
             resolutionRow.Controls.Add(customSize);
-            panel.Controls.Add(new SettingRow("Output resolution", resolutionRow));
+            var displaySizeRow = new SettingRow("Window size", resolutionRow);
+            panel.Controls.Add(displaySizeRow);
             customSize.Click += delegate {
                 long key = keys[resolution.SelectedIndex];
                 using (var dialog = new Form { Text = "Window size", StartPosition = FormStartPosition.CenterParent,
@@ -3750,18 +3755,17 @@ namespace RyGT
             var native = new DarkComboBox { Name = "SceneResolution", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
             var nativeModes = target == GameKind.GT7 ? RenderResolution.NativeModes.Concat(new[] { RenderResolution.UltrawideWindow }).ToArray() : RenderResolution.NativeModes;
             foreach (string option in nativeModes)
-                native.Items.Add(option == "game" ? "Game default" : option == "display" ? "Match output (16:9, up to 4K)" : option == RenderResolution.UltrawideWindow ? "Match ultrawide output" : option.Replace("x", " x "));
+                native.Items.Add(option == "game" ? "Game default" : option == "display" ? "Auto (fit to display, 16:9, up to 4K)" : option == RenderResolution.UltrawideWindow ? "Match ultrawide output" : option.Replace("x", " x "));
             native.SelectedIndex = Math.Max(0, Array.IndexOf(nativeModes,
                 ReadStringSetting("GPU", "native_resolution", ReadSetting("GPU", "native_4k", false) ? "3840x2160" : "game")));
-            panel.Controls.Add(new SettingRow("Scene resolution", native));
+            panel.Controls.Add(new SettingRow("Render resolution", native));
             var effective = Hint("");
             effective.Name = "ScenePreview";
             panel.Controls.Add(effective);
             Action showScene = delegate {
                 if (resolution.SelectedIndex < 0 || native.SelectedIndex < 0) return;
                 long key = keys[resolution.SelectedIndex];
-                var output = screen.SelectedIndex == 1 && desktopWidth > 0 ? new Size(desktopWidth, desktopHeight)
-                    : new Size((int)(key >> 32), (int)(uint)key);
+                var output = new Size((int)(key >> 32), (int)(uint)key);
                 string aspect = ReadStringSetting("GPU", "aspect_ratio", "16:9");
                 bool trueWide = target == GameKind.GTSport && ReadSetting("GPU", "wide_scene", false) &&
                                 RenderResolution.MatchOutputShape(aspect) && RenderResolution.WideAllocation("auto", output);
@@ -3772,23 +3776,24 @@ namespace RyGT
                 if (enableWideHeight != null) enableWideHeight(wide && !checker);
                 var scene = RenderResolution.NativeSize(nativeModes[native.SelectedIndex], output);
                 string pixels = output.Width + " × " + output.Height;
+                string displayed = (screen.SelectedIndex == 0 ? "Window " : "Display ") + pixels + ".";
                 if (checker) {
-                    effective.Text = "PS4 Pro 4K TV uses the game's checkerboard scene. Output: " + pixels + ".";
+                    effective.Text = "PS4 Pro on a 4K TV uses the game's checkerboard rendering. " + displayed;
                 } else {
                     int h = ReadIntSetting("GPU", "wide_scene_height", 0);
                     if (h == 0) int.TryParse(ReadStringSetting("GPU", "wide_scene_height", "1080"), out h);
                     Size? drawn = wide ? RenderResolution.TrueWideSize(output, h) : scene;
-                    effective.Text = drawn.HasValue ? (wide ? "True wide scene " : "Scene ") +
-                        drawn.Value.Width + " × " + drawn.Value.Height + "  →  Output " + pixels + "." :
-                        "Game default scene  →  Output " + pixels + ".";
+                    string render = drawn.HasValue ? "Rendered at " + drawn.Value.Width + " × " + drawn.Value.Height :
+                        "Game default render resolution";
+                    effective.Text = render + "  →  " + displayed;
                     if (trueWide && !wide) effective.Text += " Wide allocation requires the native renderer, high-resolution UI and wide scene allocation.";
-                    if (wide) effective.Text += " Adjust Wide scene height below.";
+                    if (wide) effective.Text += " Adjust Ultrawide render height below.";
                     else if (target == GameKind.GTSport && ReadSetting("GPU", "wide_scene", false) &&
                              RenderResolution.MatchOutputShape(aspect) && !trueWide)
-                        effective.Text += " True wide needs an ultrawide output.";
+                        effective.Text += " True wide needs an ultrawide window or screen.";
                     else if (!trueWide && RenderResolution.IsWideOutput(output))
                         effective.Text += !RenderResolution.MatchOutputShape(aspect) || !RenderResolution.WideAllocation("auto", output) ? " The 16:9 image is centered." :
-                            target == GameKind.GT7 ? " The camera follows the output; the HUD stays 16:9." :
+                            target == GameKind.GT7 ? " The camera matches the display aspect ratio. The HUD stays 16:9." :
                                 " Fill widens the camera and stretches the HUD.";
                 }
             };
@@ -3825,9 +3830,11 @@ namespace RyGT
                 {
                     WriteSetting("GPU", "full_screen", screen.SelectedIndex != 0);
                     WriteSetting("GPU", "full_screen_mode", screen.SelectedIndex == 2 ? "Fullscreen" : "Borderless");
-                    long key = keys[resolution.SelectedIndex];
-                    WriteSetting("GPU", "window_width", (int)(key >> 32));
-                    WriteSetting("GPU", "window_height", (int)(key & 0xffffffff));
+                    if (screen.SelectedIndex != 1) {
+                        wanted = keys[resolution.SelectedIndex];
+                        WriteSetting("GPU", "window_width", (int)(wanted >> 32));
+                        WriteSetting("GPU", "window_height", (int)(uint)wanted);
+                    }
                     WriteSetting("GPU", "fullscreen_refresh_rate",
                                  refresh.SelectedIndex > 0 ? int.Parse(((string)refresh.SelectedItem).Replace(" Hz", "")) : 0);
                 }
@@ -3836,6 +3843,7 @@ namespace RyGT
             Action enable = delegate
             {
                 // Borderless fullscreen always uses the desktop's mode.
+                displaySizeRow.Caption = screen.SelectedIndex == 0 ? "Window size" : "Display resolution";
                 resolution.Enabled = screen.SelectedIndex != 1;
                 refresh.Enabled = screen.SelectedIndex == 2;
                 customSize.Enabled = screen.SelectedIndex == 0;
@@ -3847,7 +3855,7 @@ namespace RyGT
                 // The output picker owns the size. This picker controls camera and HUD geometry.
                 var wideRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
                 var wide = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
-                wide.Items.AddRange(new object[] { "Off (16:9)", "Match output shape" });
+                wide.Items.AddRange(new object[] { "Off (16:9)", "Match display aspect ratio" });
                 wide.Name = "CameraShape";
                 wide.SelectedIndex = RenderResolution.MatchOutputShape(ReadStringSetting("GPU", "aspect_ratio", "16:9")) ? 1 : 0;
                 wideRow.Controls.Add(new Label { Text = "Ultrawide camera", Width = 196, Height = 20, Margin = new Padding(0, 6, 8, 0) });
@@ -3863,8 +3871,7 @@ namespace RyGT
             enable();
             screen.SelectedIndexChanged += delegate {
                 loading = true;
-                long selected = keys[resolution.SelectedIndex];
-                fillSizes(selected);
+                fillSizes(wanted);
                 fillRates(0);
                 loading = false;
                 enable();

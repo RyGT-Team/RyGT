@@ -164,6 +164,13 @@ namespace RyGT
             Check(config.Contains("2560x1440"), "Scene preset persisted for " + game.TitleId);
             var shape = (System.Windows.Forms.ComboBox)display.Controls.Find("CameraShape", true).Single();
             var preview = display.Controls.Find("ScenePreview", true).Single();
+            var screen = (System.Windows.Forms.ComboBox)display.Controls.Find("DisplayMode", true).Single();
+            output.SelectedItem = "1280 x 720";
+            Check(preview.Text.Contains("Rendered at 2560 × 1440  →  Window 1280 × 720"), "Window size and render resolution are distinct");
+            screen.SelectedIndex = 1;
+            Check(!output.Enabled && preview.Text.Contains("Display " + output.Text.Replace(" x ", " × ")), "Borderless shows the effective display resolution");
+            screen.SelectedIndex = 0;
+            Check(output.Enabled && (string)output.SelectedItem == "1280 x 720", "Window size is restored after borderless");
             var graphics = pages["Graphics"];
             var pro = (System.Windows.Forms.ComboBox)graphics.Controls.Find("ProMode", true).Single();
             var checker = (System.Windows.Forms.CheckBox)graphics.Controls.Find("ps4_pro_checkerboard", true).Single();
@@ -190,7 +197,7 @@ namespace RyGT
                 shape.SelectedIndex = 2;
                 Check(!scene.Enabled && height.Enabled && preview.Text.Contains("2576 × 1080"), "True wide owns the scene");
                 height.SelectedItem = "1440";
-                Check(preview.Text.Contains("True wide scene 3440 × 1440"), "Wide scene height follows output shape");
+                Check(preview.Text.Contains("Rendered at 3440 × 1440"), "Ultrawide render height follows the display aspect ratio");
                 height.SelectedItem = "2160";
                 Size capped = RenderResolution.TrueWideSize(new Size(3440, 1440), 2160);
                 Check(capped.Height < 2160 && preview.Text.Contains(capped.Width + " × " + capped.Height),

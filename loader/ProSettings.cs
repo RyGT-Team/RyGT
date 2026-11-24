@@ -139,9 +139,9 @@ namespace RyGT
                 proDlssRefresh();
                 if (refreshSceneChoice != null) refreshSceneChoice();
                 int p = proMode.SelectedIndex;
-                proNote.Text = p == 0 ? "Base PS4. The scene resolution is set in Display."
-                             : p == 1 ? "PS4 Pro on a 4K TV. The game controls the checkerboard scene resolution."
-                             : p == 2 ? "PS4 Pro on a 1080p TV. Scene resolution is set in Display. The effects below are enabled."
+                proNote.Text = p == 0 ? "Base PS4. Choose the render resolution in Display."
+                             : p == 1 ? "PS4 Pro on a 4K TV. The game sets the render resolution for checkerboard rendering."
+                             : p == 2 ? "PS4 Pro on a 1080p TV. Choose the render resolution in Display. The effects below are enabled."
                              : p == 3 ? "Everything on: the 4K TV picture with the 1080p TV's settings. The heaviest."
                              : proBoxes[0].Checked ? "Your own choice of the boxes below, in the game's PS4 Pro mode (checkerboard)."
                                                    : "Your own choice of the boxes below, in the PS4 mode (no checkerboard).";

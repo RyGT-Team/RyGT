@@ -718,7 +718,7 @@ namespace RyGT
             // Wide scene height (GPU.wide_scene_height): the height the true wide scene renders at;
             // its width follows the screen's shape. Lower is faster.
             var heightRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
-            var heightLabel = new Label { Text = "Wide scene height", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
+            var heightLabel = new Label { Text = "Ultrawide render height", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
             var height = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
             var heights = new[] { 720, 900, 1080, 1200, 1440, 1800, 2160 };
             foreach (int h in heights) height.Items.Add(h.ToString());
