@@ -3647,10 +3647,10 @@ namespace RyGT
                     // WIDE-001 reads its height and allocation flag from the game's profile.
                     if (Convert.ToString(setting("wide_scene_height")) != size.Value.Height.ToString() ||
                         Equals(setting("wide_scene_alloc"), false))
-                        SaveRenderMode(root, game, mode);
+                        SaveRenderMode(root, game, mode, size);
                     env["SHADGT_ASPECT"] = size.Value.Width + ":" + size.Value.Height;
                     env["SHADGT_WIDE_SCENE"] = env["SHADGT_UI_HIRES"] = "1";
-                    AppendSetupLog(root, game.TitleId, "Native GT Sport scene " + mode + " (wide allocation).");
+                    AppendSetupLog(root, game.TitleId, "Native GT Sport scene " + RenderResolution.ModeKey(size.Value) + " (wide allocation).");
                     return;
                 }
             }
@@ -3670,7 +3670,7 @@ namespace RyGT
                 ", SHADGT_PS4_PRO=" + start.EnvironmentVariables["SHADGT_PS4_PRO"]);
         }
 
-        static void SaveRenderMode(string root, GameInfo game, string mode)
+        static void SaveRenderMode(string root, GameInfo game, string mode, Size? size)
         {
             string path = game.ConfigPath(root);
             var json = new System.Web.Script.Serialization.JavaScriptSerializer();
@@ -3679,7 +3679,6 @@ namespace RyGT
             object section;
             var gpu = config.TryGetValue("GPU", out section) ? section as Dictionary<string, object> : null;
             if (gpu == null) config["GPU"] = gpu = new Dictionary<string, object>();
-            Size? size = RenderResolution.NativeSize(mode, new Size(1920, 1080));
             bool wide = size.HasValue && RenderResolution.SupportsWideScene(size.Value);
             gpu["native_resolution"] = mode;
             gpu["aspect_ratio"] = wide ? "auto" : "16:9";
@@ -3813,8 +3812,11 @@ namespace RyGT
             var nativeModes = RenderResolution.NativeModes.ToList();
             bool gts = target == GameKind.GTSport;
             var gpu = ReadGpuSettings(root, info);
-            long initialKey = keys[resolution.SelectedIndex];
-            var initialOutput = new Size((int)(initialKey >> 32), (int)(uint)initialKey);
+            Func<Size> selectedOutput = delegate {
+                long key = keys[resolution.SelectedIndex];
+                return new Size((int)(key >> 32), (int)(uint)key);
+            };
+            var initialOutput = selectedOutput();
             string savedMode = RenderResolution.SavedMode(gts, k => gpu.ContainsKey(k) ? gpu[k] : null, initialOutput);
             var savedSize = RenderResolution.NativeSize(savedMode, initialOutput);
             bool legacyWide = savedSize.HasValue && RenderResolution.SupportsWideScene(savedSize.Value) &&
@@ -3827,8 +3829,9 @@ namespace RyGT
             }
             if (!nativeModes.Contains(savedMode) && RenderResolution.NativeSize(savedMode, initialOutput).HasValue)
                 nativeModes.Add(savedMode);
+            Func<string> autoLabel = () => screen.SelectedIndex == 0 ? "Auto (fit to window size)" : "Auto (fit to display resolution)";
             foreach (string option in nativeModes)
-                native.Items.Add(option == "game" ? "Game default" : option == "display" ? "Auto (fit to display, 16:9, up to 4K)" : option.Replace("x", " x "));
+                native.Items.Add(option == "game" ? "Game default" : option == RenderResolution.Auto ? autoLabel() : option.Replace("x", " x "));
             native.SelectedIndex = Math.Max(0, nativeModes.IndexOf(savedMode));
             var customRender = new Button { Name = "CustomRenderResolution", Text = "Custom…", AutoSize = true, FlatStyle = FlatStyle.Flat };
             var renderRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
@@ -3840,8 +3843,7 @@ namespace RyGT
             panel.Controls.Add(effective);
             Action showScene = delegate {
                 if (resolution.SelectedIndex < 0 || native.SelectedIndex < 0) return;
-                long key = keys[resolution.SelectedIndex];
-                var output = new Size((int)(key >> 32), (int)(uint)key);
+                var output = selectedOutput();
                 bool checker = UsesCheckerboard(SavedProMode(), ReadSetting("GPU", "ps4_pro_checkerboard", false));
                 native.Enabled = customRender.Enabled = !checker;
                 var scene = RenderResolution.NativeSize(nativeModes[native.SelectedIndex], output);
@@ -3859,22 +3861,25 @@ namespace RyGT
                     effective.Text += " The 16:9 image is centered.";
             };
             refreshSceneChoice = showScene;
-            native.SelectedIndexChanged += delegate {
+            bool loading = true;
+            Action saveScene = delegate {
                 string mode = nativeModes[native.SelectedIndex];
-                try {
-                    SaveRenderMode(root, info, mode);
-                    legacyWide = false;
-                    var chosen = RenderResolution.NativeSize(mode, initialOutput);
-                    if (gts && chosen.HasValue && RenderResolution.SupportsWideScene(chosen.Value)) {
-                        if (uiHiresBox != null) uiHiresBox.Checked = true;
-                        if (rendererCombo != null) rendererCombo.SelectedIndex = 1;
-                    }
-                } catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+                var chosen = RenderResolution.NativeSize(mode, selectedOutput());
+                SaveRenderMode(root, info, mode, chosen);
+                legacyWide = false;
+                if (gts && chosen.HasValue && RenderResolution.SupportsWideScene(chosen.Value)) {
+                    if (uiHiresBox != null) uiHiresBox.Checked = true;
+                    if (rendererCombo != null) rendererCombo.SelectedIndex = 1;
+                }
+            };
+            native.SelectedIndexChanged += delegate {
+                if (loading || native.SelectedIndex < 0) return;
+                try { saveScene(); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
                 showScene();
             };
             customRender.Click += delegate {
-                long key = keys[resolution.SelectedIndex];
-                var output = new Size((int)(key >> 32), (int)(uint)key);
+                var output = selectedOutput();
                 var picked = PickDimensions("Render resolution", RenderResolution.NativeSize(nativeModes[native.SelectedIndex], output) ?? output, true);
                 if (!picked.HasValue) return;
                 string mode = RenderResolution.ModeKey(picked.Value);
@@ -3888,7 +3893,6 @@ namespace RyGT
             refreshRow.Controls.Add(refresh);
             panel.Controls.Add(refreshRow);
 
-            bool loading = true;
             Action<int> fillRates = delegate (int wantedHz)
             {
                 refresh.Items.Clear();
@@ -3906,10 +3910,7 @@ namespace RyGT
                 if (loading) return;
                 try
                 {
-                    if (legacyWide) {
-                        SaveRenderMode(root, info, nativeModes[native.SelectedIndex]);
-                        legacyWide = false;
-                    }
+                    if (legacyWide || nativeModes[native.SelectedIndex] == RenderResolution.Auto) saveScene();
                     WriteSetting("GPU", "full_screen", screen.SelectedIndex != 0);
                     WriteSetting("GPU", "full_screen_mode", screen.SelectedIndex == 2 ? "Fullscreen" : "Borderless");
                     if (screen.SelectedIndex != 1) {
@@ -3937,6 +3938,7 @@ namespace RyGT
                 loading = true;
                 fillSizes(wanted);
                 fillRates(0);
+                native.Items[nativeModes.IndexOf(RenderResolution.Auto)] = autoLabel();
                 loading = false;
                 enable();
                 save();

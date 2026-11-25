@@ -173,6 +173,24 @@ namespace RyGT
             Check(!output.Enabled && preview.Text.Contains("Display " + output.Text.Replace(" x ", " × ")), "Borderless shows the effective display resolution");
             screen.SelectedIndex = 0;
             Check(output.Enabled && (string)output.SelectedItem == "1280 x 720", "Window size is restored after borderless");
+            output.SelectedItem = "2560 x 1080";
+            scene.SelectedItem = "Auto (fit to window size)";
+            Check(preview.Text.Contains("Rendered at 2560 × 1080  →  Window 2560 × 1080"), "Auto fits the entire 21:9 window");
+            output.SelectedItem = "5120 x 1440";
+            Check(preview.Text.Contains("Rendered at 5120 × 1440  →  Window 5120 × 1440"), "Auto follows a change to a 32:9 window");
+            string automatic = File.ReadAllText(game.ConfigPath(root));
+            Check(automatic.Contains("\"native_resolution\":\"auto\"") &&
+                  (game.Kind != GameKind.GTSport || automatic.Contains("\"wide_scene_height\":1440")),
+                  "Auto and the current ultrawide allocation survive reopening");
+            screen.SelectedIndex = 1;
+            Check((string)scene.SelectedItem == "Auto (fit to display resolution)", "Fullscreen Auto refers to the display");
+            screen.SelectedIndex = 0;
+            Check((string)scene.SelectedItem == "Auto (fit to window size)" && preview.Text.Contains("Rendered at 5120 × 1440"),
+                  "Windowed Auto is restored after fullscreen");
+            output.SelectedItem = "1280 x 720";
+            Check(preview.Text.Contains("Rendered at 1280 × 720") && (game.Kind != GameKind.GTSport ||
+                  File.ReadAllText(game.ConfigPath(root)).Contains("\"wide_scene\":false")), "Auto returns to 16:9");
+            scene.SelectedItem = "2560 x 1440";
             var graphics = pages["Graphics"];
             var hdr = (System.Windows.Forms.CheckBox)display.Controls.Find("HdrOutput", true).Single();
             hdr.Checked = true;

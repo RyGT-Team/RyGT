@@ -59,10 +59,11 @@ namespace RyGT
         }
 
         internal static readonly string[] NativeModes = {
-            "game", "display", "1280x720", "1600x900", "1920x1080", "2560x1080", "3840x1080",
+            "game", Auto, "1280x720", "1600x900", "1920x1080", "2560x1080", "3840x1080",
             "2560x1440", "3440x1440", "5120x1440", "3840x1600", "3200x1800", "3840x2160"
         };
 
+        public const string Auto = "auto";
         public const string UltrawideWindow = "ultrawide_window";
 
         public static bool SupportsWideScene(Size size)
@@ -77,9 +78,16 @@ namespace RyGT
         public static Size? NativeSize(string mode, Size output)
         {
             if (mode == UltrawideWindow) return SupportsWideScene(output) ? (Size?)output : null;
-            if (mode == "display") {
-                // Keep the guest's 16:9 scene inside the output. Display modes and camera
-                // aspect are independent; UHD is the largest validated guest allocation.
+            if (mode == Auto) {
+                if (SupportsWideScene(output)) return output;
+                if (output.Height >= 360 && IsWideOutput(output) && output.Width < (long)output.Height * 6) {
+                    Size fit = TrueWideSize(output, Math.Min(2160, output.Height));
+                    // Width alignment can round the last row over the allocation budget.
+                    if ((long)fit.Width * fit.Height > 3840L * 2160)
+                        fit = TrueWideSize(output, fit.Height - 1);
+                    if (SupportsWideScene(fit)) return fit;
+                }
+                // Narrow windows and unsupported aspect ratios keep the game's 16:9 frame.
                 int units = Math.Min(240, Math.Min(output.Width / 16, output.Height / 9));
                 if (units < 1) throw new ArgumentOutOfRangeException("output");
                 return new Size(units * 16, units * 9);
@@ -130,7 +138,8 @@ namespace RyGT
         {
             string mode = setting("native_resolution") as string ?? (Equals(setting("native_4k"), true) ? "3840x2160" : "game");
             if (mode == UltrawideWindow)
-                return SupportsWideScene(output) ? ModeKey(output) : setting("native_resolution_16_9") as string ?? "game";
+                mode = SupportsWideScene(output) ? ModeKey(output) : setting("native_resolution_16_9") as string ?? "game";
+            if (mode == Auto) return mode;
             Size? size = NativeSize(mode, output);
             if (size.HasValue && SupportsWideScene(size.Value)) return mode;
             // Older GTS profiles stored the height separately and derived the width at launch.
@@ -141,7 +150,7 @@ namespace RyGT
                 int.TryParse(Convert.ToString(setting("wide_scene_height")), out height);
                 return ModeKey(TrueWideSize(output, height));
             }
-            return mode;
+            return mode == "display" ? Auto : mode;
         }
 
         public static bool IsWideOutput(Size output)
