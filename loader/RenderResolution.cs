@@ -174,11 +174,11 @@ namespace RyGT
             return rva.ToString("x") + ":" + opcode + Word(original) + ":" + opcode + Word(replacement);
         }
 
-        static List<string> NativePatches(bool gt7, Size size, bool pro1080)
+        static List<string> NativePatches(bool gt7, Size size, bool pro1080, Size scene)
         {
             const int width = 1920, height = 1080;
             string extent = Word(width) + Word(height);
-            string target = Word(size.Width) + Word(size.Height);
+            string target = Word(scene.Width) + Word(scene.Height);
             int pool = gt7 ? 0xb000000 : 0xe800000;
             int poolCount = (size.Width * size.Height + width * height - 1) / (width * height);
             // The base UI scratch surface has a 2048-wide stride and two stacked heights.
@@ -191,8 +191,8 @@ namespace RyGT
                     : "1c6dea0:8b0d8696f500:b93804000090",
                 Immediate(gt7 ? 0x17a7416 : 0x1c6dee5, gt7 ? "bb" : "41bf", width, size.Width),  // flip
                 Immediate(gt7 ? 0x17a741b : 0x1c6deeb, gt7 ? "41bf" : "41bc", height, size.Height),
-                Immediate(gt7 ? 0x17a7426 : 0x1c6dec9, gt7 ? "ba" : "c7055596f500", width, size.Width), // scene
-                Immediate(gt7 ? 0x17a7421 : 0x1c6ded3, gt7 ? "b9" : "c7054f96f500", height, size.Height),
+                Immediate(gt7 ? 0x17a7426 : 0x1c6dec9, gt7 ? "ba" : "c7055596f500", width, scene.Width), // scene
+                Immediate(gt7 ? 0x17a7421 : 0x1c6ded3, gt7 ? "b9" : "c7054f96f500", height, scene.Height),
                 (gt7 ? "27cadc6" : "1988ad3") + ":48b9" + extent + ":48b9" + target,
                 Immediate(gt7 ? 0x27caa03 : 0x19885dd, "b8", pool, pool * poolCount),
                 // In Pro mode the game adds 2048 before this instruction. Keep its stock
@@ -213,7 +213,7 @@ namespace RyGT
             return patches;
         }
 
-        public static void ConfigureNative(ProcessStartInfo start, string root, bool gt7, string patchVariable, Size size, bool pro1080 = false)
+        public static void ConfigureNative(ProcessStartInfo start, string root, bool gt7, string patchVariable, Size size, bool pro1080 = false, Size? scene = null)
         {
             bool wide = gt7 && SupportsWideScene(size);
             if (!wide && (size.Width < 16 || size.Width > 3840 || size.Height < 9 || size.Height > 2160 ||
@@ -222,7 +222,7 @@ namespace RyGT
                 !String.IsNullOrEmpty(start.EnvironmentVariables["RYGT_PATCH"]))
                 throw new InvalidOperationException("Native resolution conflicts with another game patch or scene scale.");
             if (pro1080 || size != new Size(1920, 1080)) {
-                var patches = NativePatches(gt7, size, pro1080);
+                var patches = NativePatches(gt7, size, pro1080, scene ?? size);
                 using (var exe = new BinaryReader(File.OpenRead(Path.Combine(root, gt7 ? "GT7.exe" : "GTSport.exe")))) {
                     foreach (var patch in patches) {
                         var parts = patch.Split(':');

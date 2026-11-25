@@ -3630,11 +3630,11 @@ namespace RyGT
             string forced = env["RYGT_NATIVE_4K"];
             if (forced != null) mode = forced == "1" ? "3840x2160" : "game";
             bool dlssPerformance = env["RYGT_DLSS_PERFORMANCE_INPUT"] == "1" && forced == null &&
-                mode == "game" && output == new Size(3840, 2160) && pro == "off" &&
+                mode == "3840x2160" && output == new Size(3840, 2160) && pro == "off" &&
                 Equals(setting("dlss_enabled"), true) && !Equals(setting("fsr_enabled"), true);
             if (dlssPerformance) {
-                mode = "1920x1080";
-                env["SHADGT_DLSS_STREAMLINE"] = gts ? "0" : "1";
+                env["RYGT_DLSS_GUEST_OUTPUT"] = "1";
+                env["SHADGT_DLSS_STREAMLINE"] = "0";
                 env["SHADGT_DLSS_TEMPORAL"] = "1";
                 env["SHADGT_DLSS_QUALITY"] = env["SHADGT_UPSCALE_QUALITY"] = "performance";
                 env["SHADGT_UPSCALE_RATIO"] = "2";
@@ -3673,8 +3673,12 @@ namespace RyGT
                 if (!App0Layout.FileContains(renderer, patchVariable + "\0"))
                     throw new InvalidOperationException("This renderer does not support custom render resolutions.");
             }
-            RenderResolution.ConfigureNative(start, root, game.Kind == GameKind.GT7, patchVariable, size.Value, pro == "1080p");
-            AppendSetupLog(root, game.TitleId, "Native scene " + size.Value.Width + " x " + size.Value.Height +
+            Size? input = dlssPerformance ? new Size(1920, 1080) : (Size?)null;
+            RenderResolution.ConfigureNative(start, root, game.Kind == GameKind.GT7, patchVariable, size.Value, pro == "1080p", input);
+            if (dlssPerformance)
+                AppendSetupLog(root, game.TitleId, "DLSS Performance requested: guest output 3840x2160, scene 1920x1080.");
+            var scene = input ?? size.Value;
+            AppendSetupLog(root, game.TitleId, "Native scene " + scene.Width + " x " + scene.Height +
                 ": RYGT_NEO=" + start.EnvironmentVariables["RYGT_NEO"] +
                 ", SHADGT_NEO=" + start.EnvironmentVariables["SHADGT_NEO"] +
                 ", SHADGT_PS4_PRO=" + start.EnvironmentVariables["SHADGT_PS4_PRO"]);
