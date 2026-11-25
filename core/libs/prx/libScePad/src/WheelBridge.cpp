@@ -11,6 +11,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -22,7 +23,9 @@
 #include <windows.h>
 
 #include "SDL.h"
+#include "GameSerial.hpp"
 #include "prx/libScePad/include/InputMapping.hpp"
+#include "prx/libScePad/include/T300Protocol.hpp"
 #include "prx/libScePad/include/WheelInput.hpp"
 #include "prx/libc/include/General.hpp"
 
@@ -52,6 +55,18 @@ struct ForceSlot {
     std::uint8_t parameters[6]{};
 };
 std::mutex forceMutex;
+T300Protocol t300;
+SDL_JoystickID t300Device = -1;
+std::uint64_t t300LastActivity = 0;
+constexpr std::uint64_t T300IdleTimeoutMs = 2000;
+
+std::uint64_t T300Time() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+WheelForces T300Forces(std::uint64_t now) {
+    const auto f = t300.Decode(now);
+    return {f.active, f.constant, f.spring, f.springCenter, f.springLimit, f.damper, f.friction};
+}
 ForceSlot forceSlots[4];
 bool autocenter = true;
 int commandsLogged = 0;
@@ -208,6 +223,23 @@ void wheelThread() {
         SDL_Event event;
         while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_JOYDEVICEADDED, SDL_JOYDEVICEREMOVED) > 0) input.HandleEvent(event);
         SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+        if (Pad::Wheel().IsT300()) {
+            std::lock_guard lock(forceMutex);
+            const auto device = input.AttachedWheel();
+            if (device != t300Device) {
+                t300 = {};
+                t300Device = device;
+                t300LastActivity = 0;
+            }
+            const auto now = T300Time();
+            // A title can hold an infinite effect while it polls the wheel. Stop it if both
+            // input polls and valid output reports cease, even if the handle never closes.
+            if (t300LastActivity != 0 && now - t300LastActivity >= T300IdleTimeoutMs) {
+                t300.StopAll();
+                t300LastActivity = 0;
+            }
+            input.SetForces(T300Forces(now), false);
+        }
         input.Update();
         ready.store(true);
         std::this_thread::sleep_for(std::chrono::milliseconds(4));
@@ -244,12 +276,35 @@ void ApplyWheel(PadInputState& state) {
 }
 
 void SetWheelOpened(bool opened) {
+    if (Wheel().IsT300()) {
+        std::lock_guard lock(forceMutex);
+        wheelOpened.store(opened);
+        if (!opened) {
+            t300 = {};
+            t300LastActivity = 0;
+        }
+        return;
+    }
     wheelOpened.store(opened);
+}
+
+void KeepT300ForceFeedbackAlive() {
+    std::lock_guard lock(forceMutex);
+    if (wheelOpened.load() && t300Device >= 0) t300LastActivity = T300Time();
 }
 
 void WheelReport(const std::uint8_t* report, std::size_t length) {
     if (report == nullptr || length < 2) return;
     std::lock_guard lock(forceMutex);
+    if (Wheel().IsT300()) {
+        const auto now = T300Time();
+        if (wheelOpened.load() && t300Device >= 0 && t300.Report(report, length, now)) {
+            t300LastActivity = now;
+            if (WheelInput* input = wheel.load())
+                input->SetForces(T300Forces(now), report[0] >= 0x31 && report[0] <= 0x39);
+        }
+        return;
+    }
     if (Wheel().IsFanatec()) {
         FanatecReport(report, length);
         return;
@@ -295,6 +350,7 @@ void WheelReport(const std::uint8_t* report, std::size_t length) {
 }
 
 bool WheelFeatureReport(int reportId, std::uint8_t* report, std::size_t length) {
+    if (Wheel().IsT300()) return T300Protocol::Feature(reportId, report, length);
     if (!Wheel().IsFanatec() || report == nullptr) return false;
     if (reportId == 0x33) {
         // The rim's extra inputs (analog paddles, dials, encoders), read while driving: all at
@@ -352,8 +408,15 @@ const WheelSettings& Wheel() {
     static const WheelSettings settings = [] {
         WheelSettings result;
         std::unique_ptr<char, decltype(&SDL_free)> base(SDL_GetBasePath(), SDL_free);
-        const std::string path = std::string(base ? base.get() : "") + "ryty-wheel.ini";
+        // FEAT-RT-031: each title can choose its own wheel profile in a shared folder.
+        const std::string_view directory = base ? base.get() : "";
+        const auto root = std::filesystem::path(std::u8string(directory.begin(), directory.end()));
+        auto path = root / (std::string(GameSerial::GameSerial()) + ".ryty-wheel.ini");
         std::ifstream file(path);
+        if (!file) {
+            path = root / "ryty-wheel.ini";
+            file.open(path);
+        }
         std::string line;
         while (std::getline(file, line)) {
             line = line.substr(0, line.find_first_of("#;"));
@@ -384,7 +447,11 @@ const WheelSettings& Wheel() {
                     result.vendor = static_cast<unsigned>(std::strtoul(value.substr(0, colon).c_str(), nullptr, 16));
                     result.product = static_cast<unsigned>(std::strtoul(value.substr(colon + 1).c_str(), nullptr, 16));
                 }
-            } else APS5_LOG_OUT("Pad: unknown setting '%s' in %s", key.c_str(), path.c_str());
+            } else {
+                const auto utf8Path = path.u8string();
+                APS5_LOG_OUT("Pad: unknown wheel setting '%s' in %s", key.c_str(),
+                    reinterpret_cast<const char*>(utf8Path.c_str()));
+            }
         }
         APS5_LOG_OUT("Pad: force feedback: gain %d%%, damping %d%%, detail %d%%%s", result.ffbGain, result.ffbDamping, result.ffbDetail,
             result.ffbInvert ? ", reversed" : "");

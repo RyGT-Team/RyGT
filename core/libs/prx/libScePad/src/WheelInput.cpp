@@ -481,7 +481,24 @@ bool WheelInput::Update() {
         lastCommand = lastDriveCommand;
     }
     Device* wheel = primary();
-    if (wheel && wheel->haptic && wanted.active) playForces(*wheel, wanted, next.steering);
+    if (wheel && wheel->haptic) {
+        const bool nativeT300 = Pad::Wheel().IsT300();
+        const bool hasT300Force = wanted.constant != 0 || wanted.spring != 0 || wanted.damper != 0;
+        if (wanted.active && (!nativeT300 || hasT300Force)) {
+            playForces(*wheel, wanted, next.steering);
+        } else if (nativeT300 && wheel->played.active) {
+            // FEAT-RT-031: destroy native effects on stop, pad close or loss of guest polling.
+            for (auto* id : {&wheel->constantEffect, &wheel->gameSpringEffect, &wheel->damperEffect, &wheel->frictionEffect}) {
+                if (*id >= 0) SDL_HapticDestroyEffect(wheel->haptic, *id);
+                *id = -1;
+            }
+            wheel->played = {};
+            wheel->slowConstant = 0;
+            wheel->steeringSpeed = 0;
+            wheel->centering = 0;
+            wheel->lastSteeringAt = {};
+        }
+    }
     if (wheel && wheel->vendor == VendorThrustmaster && wheel->lowerName.find("t300") != std::string::npos && now >= nextCheck) {
         nextCheck = now + std::chrono::seconds(1);
         const bool recent = lastCommand != std::chrono::steady_clock::time_point{} &&
@@ -517,6 +534,11 @@ void WheelInput::Apply(PadInputState& state) const {
     }
     state.touchLeft = state.touchLeft || sample.touchLeft;
     state.touchRight = state.touchRight || sample.touchRight;
+}
+
+SDL_JoystickID WheelInput::AttachedWheel() const {
+    const Device* device = primary();
+    return device && SDL_JoystickGetAttached(device->joystick) ? device->instanceId : -1;
 }
 
 WheelState WheelInput::State() const {
@@ -640,7 +662,8 @@ void WheelInput::playForces(Device& device, const WheelForces& wanted, int steer
     }
     const auto condition = [&](Uint16 type, unsigned feature, int& id, int coefficient, int center, int& playedCoefficient, int* playedCenter, int limit) {
         if ((device.hapticFeatures & feature) == 0) return;
-        if (id >= 0 && !moved(coefficient, playedCoefficient) && (playedCenter == nullptr || !moved(center, *playedCenter))) return;
+        if (id >= 0 && !moved(coefficient, playedCoefficient) &&
+            (playedCenter == nullptr || (!moved(center, *playedCenter) && limit == device.played.springLimit))) return;
         SDL_HapticEffect effect = conditionEffect(type, device.conditionNeedsDirection, scale(coefficient), center, limit);
         int result = playEffect(device.haptic, id, effect, running);
         if (result < 0 && !device.conditionNeedsDirection) {
@@ -650,7 +673,10 @@ void WheelInput::playForces(Device& device, const WheelForces& wanted, int steer
         }
         id = result;
         playedCoefficient = coefficient;
-        if (playedCenter != nullptr) *playedCenter = center;
+        if (playedCenter != nullptr) {
+            *playedCenter = center;
+            device.played.springLimit = limit;
+        }
     };
     condition(SDL_HAPTIC_SPRING, SDL_HAPTIC_SPRING, device.gameSpringEffect, wanted.spring, wanted.springCenter, device.played.spring, &device.played.springCenter, wanted.springLimit);
     condition(SDL_HAPTIC_DAMPER, SDL_HAPTIC_DAMPER, device.damperEffect, wanted.damper, 0, device.played.damper, nullptr, 0xFFFF);

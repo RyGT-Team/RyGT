@@ -84,6 +84,7 @@ int SteeringForGame(int steering);
 // While the title has the wheel open as a steering wheel, its L1/R1 (the G29's shift paddles)
 // belong to the wheel alone; on the ordinary pad they would also move the camera.
 void SetWheelOpened(bool opened);
+void KeepT300ForceFeedbackAlive();
 // A force-feedback output report the title sent to the wheel (Logitech classic commands).
 void WheelReport(const std::uint8_t* report, std::size_t length);
 // A Fanatec wheel's configuration (feature report 0x31), as the title's Fanatec SDK reads it.
@@ -101,6 +102,8 @@ struct WheelSettings {
     // forces), or a Logitech G29 (046d:c24f).
     unsigned vendor = 0x0eb7;
     unsigned product = 0x0e05;
+    // FEAT-RT-031: native T300RS identity presented to the guest's Thrustmaster SDK.
+    bool IsT300() const { return vendor == 0x044f && product == 0xb66d; }
     bool IsFanatec() const { return vendor == 0x0eb7; }
     int capability = 0;          // steering-wheel capability bits reported to the game
     int ffbGain = 100;           // force feedback strength in percent

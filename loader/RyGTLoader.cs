@@ -4005,7 +4005,7 @@ namespace RyGT
                 using (Form form = args[0] == "--snapshot-ports"
                            ? (Form)new PortsForm("", null, (ports, names) => { })
                            : args[0] == "--snapshot-wheel"
-                               ? (Form)new WheelForm(root)
+                               ? (Form)new WheelForm(root, GameInfo.GTSport)
                                : args[0] == "--snapshot-obsolete"
                                    ? (Form)new ObsoleteSettingsDialog(ObsoleteSettings.Find(new Dictionary<string, object>
                                          { { "GPU", new Dictionary<string, object> { { "quality_preset", 2 } } } }))
