@@ -6,6 +6,12 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.22 - 2026-11-25
+
+* FEAT-RT-033: GT7's Display page gets the Vulkan device list GT Sport's has, so the game's GPU can be
+  picked in the launcher instead of by editing gpu_id in the config. The choice is kept by the device's UUID,
+  and Play checks that the device is still there and supports Vulkan 1.3.
+
 ## 0.3.20 - 2026-11-24
 
 * FEAT-RT-031: Add an experimental native Thrustmaster T300RS profile for GT7 and GT Sport.

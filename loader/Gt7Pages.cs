@@ -27,6 +27,9 @@ namespace RyGT
         Action BuildGt7Pages(TableLayoutPanel displayPage, TableLayoutPanel graphicsPage)
         {
             var display = Section(displayPage, "Screen");
+            // FEAT-RT-033: the Vulkan device, as GT Sport's Display page has it (Vulkan.gpu_id, with
+            // the device's UUID and name kept so the choice follows the device if the order changes).
+            AddVulkanDeviceSetting(display);
             AddScreenSettings(display);
             AddOption(display, "Show an FPS counter", "General", "show_fps_counter", false);
             AddOption(display, "Show the splash screen while the game starts", "General", "show_splash", false);
@@ -1260,6 +1263,9 @@ namespace RyGT
             if (IsGameRunning()) { RefreshState(); return; }
             MigrateGt7Serial(); // GAME-004
             if (!File.Exists(Exe)) { MessageBox.Show(this, "Press Set up first."); return; }
+            // FEAT-RT-033: the chosen Vulkan device is looked up again by its UUID (as for GT Sport).
+            try { ResolveVulkanDevice(); }
+            catch (Exception e) { MessageBox.Show(this, e.Message); return; }
             // Without its data index GT7 closes right after the splash screen.
             string dataIndex = RuntimeReadsGameFolders() ? GameFile("contents\\gt.idx") : null;
             string linkedIndex = Path.Combine(App0Layout.Top(root, info.TitleId), "contents", "gt.idx");
