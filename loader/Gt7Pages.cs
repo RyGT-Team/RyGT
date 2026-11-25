@@ -275,7 +275,7 @@ namespace RyGT
             {
                 proDlssRefresh();
                 int p = proMode.SelectedIndex;
-                proNote.Text = p == 0 ? "As a PS4: native 1920 x 1080, no box ticked."
+                proNote.Text = p == 0 ? "Base PS4. The scene resolution is set in Display."
                              : p == 1 ? "As a PS4 Pro on a 4K TV: the checkerboard picture, the other settings off."
                              : p == 2 ? "As a PS4 Pro on a 1080p TV (PS4 Pro mode on): native 1920 x 1080, the five other settings on."
                              : p == 3 ? "Everything on: the 4K TV picture with the 1080p TV's settings. The heaviest."
@@ -753,17 +753,8 @@ namespace RyGT
         /// A GPU section setting from the game's settings file, or null.
         static object GpuSetting(string root, string key)
         {
-            try
-            {
-                string path = GameInfo.GT7.ConfigPath(root);
-                var config = new System.Web.Script.Serialization.JavaScriptSerializer()
-                    .DeserializeObject(File.ReadAllText(path)) as Dictionary<string, object>;
-                object found, value;
-                var gpu = config != null && config.TryGetValue("GPU", out found) ? found as Dictionary<string, object> : null;
-                if (gpu != null && gpu.TryGetValue(key, out value)) return value;
-            }
-            catch { }
-            return null;
+            object value;
+            return ReadGpuSettings(root, GameInfo.GT7).TryGetValue(key, out value) ? value : null;
         }
 
 
@@ -1419,6 +1410,7 @@ namespace RyGT
                     // FEAT-GTS-254: the Advanced page's switches and other variables last, so they win.
                     TrophyStore.ApplyEnvironment(root, start);
                     int customCount = CustomEnvironment.Apply(start, new Settings(GameInfo.GT7.IniPath(root)).Env);
+                    ApplyNativeResolution(start, root, GameInfo.GT7);
                     if (customCount > 0) AppendSetupLog(root, GameInfo.GT7.TitleId, customCount + " custom environment variable(s) applied.");
                     started = Process.Start(start);
                 }

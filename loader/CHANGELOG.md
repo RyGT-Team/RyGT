@@ -8,6 +8,11 @@ CI fails when the two disagree.
 
 ## 0.3.20 - 2026-11-24
 
+* FEAT-RT-031: In Display, choose a monitor mode or enter a custom window size. GT Sport and
+  GT7 can match their native 16:9 scene to that output up to 3840 x 2160, or use
+  an independent scene preset. Disable upscaling and experimental scene scaling
+  to use a native scene profile. `RYGT_NATIVE_4K=0` disables the override for
+  one launch and `RYGT_NATIVE_4K=1` selects the 4K reference.
 * FEAT-RT-031: Add an experimental native Thrustmaster T300RS profile for GT7 and GT Sport.
   Each game saves its own wheel settings, with the old shared file as the initial settings.
 

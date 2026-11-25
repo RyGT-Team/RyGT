@@ -237,7 +237,7 @@ namespace RyGT
             graphics.Controls.Add(presetRow);
             var presetNote = new Label
             {
-                Text = "GT Sport always renders races at 1920 x 1080. The upscaler rebuilds that picture at the " +
+                Text = "With the default 1920 x 1080 race scene, the upscaler rebuilds the picture at the " +
                        "output resolution, then it is fitted to your screen. On a 1080p screen, anything above " +
                        "1920 x 1080 is supersampling: smoother edges and finer detail, but more GPU work.",
                 AutoSize = true, MaximumSize = new Size(420, 0), BackColor = Color.Transparent, ForeColor = Dark.DimText,
@@ -1294,6 +1294,7 @@ namespace RyGT
                     }
                     // FEAT-GTS-433: the user's list last, so it wins; only the count is logged.
                     int custom = CustomEnvironment.Apply(start, customEnv);
+                    ApplyNativeResolution(start, root, GameInfo.GTSport);
                     if (custom > 0) AppendSetupLog(root, GameInfo.GTSport.TitleId, custom + " custom environment variable(s) applied.");
                     started = Process.Start(start);
                 }
