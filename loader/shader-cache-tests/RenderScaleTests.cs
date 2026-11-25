@@ -13,6 +13,21 @@ foreach (int width in new[] { 3440, 5120 }) {
 Check(!RenderResolution.NativeSize(RenderResolution.UltrawideWindow, new Size(2560,1440)).HasValue, "16:9 output");
 Check(!RenderResolution.NativeSize(RenderResolution.UltrawideWindow, new Size(7680,2160)).HasValue, "wide pool limit");
 Check(RenderResolution.NativeSize("display", new Size(7680,4320)) == new Size(3840,2160), "UHD guest allocation limit");
+foreach (string mode in new[] {"2560x1440","3440x1440","5120x1440","3840x1080","4096x1152","3200x1000"}) {
+    var size = RenderResolution.NativeSize(mode,new Size(5120,1440));
+    Check(size.HasValue && RenderResolution.ModeKey(size.Value)==mode,"exact preset or custom "+mode);
+}
+foreach (string mode in new[] {"-1x1080","3441x1440","8192x1440","7680x2160","bad"}) {
+    Check(!RenderResolution.NativeSize(mode,new Size(5120,1440)).HasValue,"unsupported dimensions "+mode);
+}
+var settings = new System.Collections.Generic.Dictionary<string,object> {
+    {"native_resolution","game"},{"wide_scene",true},{"aspect_ratio","auto"},{"wide_scene_height","1080"} };
+Func<string,object> get = k => settings.ContainsKey(k) ? settings[k] : null;
+Check(RenderResolution.SavedMode(true,get,new Size(5120,1440))=="3840x1080","legacy GT Sport native 32:9 at 1080p");
+settings["native_renderer"]=false;
+Check(RenderResolution.SavedMode(true,get,new Size(5120,1440))=="game","inactive legacy GT Sport wide profile");
+settings["native_resolution"]=RenderResolution.UltrawideWindow;
+Check(RenderResolution.SavedMode(false,get,new Size(5120,1440))=="5120x1440","legacy GT7 native 32:9");
 Check(RenderResolution.NativeSize("3840x2160", new Size(1280,720)) == new Size(3840,2160), "fixed scene independent of window");
 Check(!RenderResolution.NativeSize("game", new Size(1280,720)).HasValue, "keep console settings");
 SizeIs(1920,1080,"performance",960,540);SizeIs(1920,1080,"quality",1280,720);SizeIs(1920,1080,"ultra_performance",640,360);SizeIs(1920,1080,"balanced",1136,639);SizeIs(3840,2160,"quality",2560,1440);SizeIs(3840,2160,"dlaa",3840,2160);SizeIs(1280,720,"performance",640,360);

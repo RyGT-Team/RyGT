@@ -162,7 +162,9 @@ namespace RyGT
             scene.SelectedItem = "2560 x 1440";
             var config = File.ReadAllText(game.ConfigPath(root));
             Check(config.Contains("2560x1440"), "Scene preset persisted for " + game.TitleId);
-            var shape = (System.Windows.Forms.ComboBox)display.Controls.Find("CameraShape", true).Single();
+            Check(display.Controls.Find("CameraShape", true).Length == 0 && display.Controls.Find("WideSceneHeight", true).Length == 0,
+                  "Render resolution replaces both wide selectors");
+            Check(display.Controls.Find("CustomRenderResolution", true).Length == 1, "Custom rendering dimensions are available");
             var preview = display.Controls.Find("ScenePreview", true).Single();
             var screen = (System.Windows.Forms.ComboBox)display.Controls.Find("DisplayMode", true).Single();
             output.SelectedItem = "1280 x 720";
@@ -176,7 +178,6 @@ namespace RyGT
             hdr.Checked = true;
             Check(File.ReadAllText(game.ConfigPath(root)).Contains("\"hdr_allowed\":true"), "HDR on Display writes the current game's profile");
             hdr.Checked = false;
-            Check(shape.Items[2].ToString() == "True wide (native)", "Both games offer True wide in the same selector");
             var pro = (System.Windows.Forms.ComboBox)graphics.Controls.Find("ProMode", true).Single();
             var warning = graphics.Controls.Find("ProReconstructionWarning", true).Single();
             var guide = graphics.Controls.Find("ImageQualityGuide", true).Single();
@@ -199,43 +200,27 @@ namespace RyGT
             pro.SelectedIndex = 2;
             Check(scene.Enabled && (string)scene.SelectedItem == "2560 x 1440", "Fixed preset survives TV changes");
             output.SelectedItem = "3440 x 1440";
-            shape.SelectedIndex = 1;
-            Check(scene.Enabled && preview.Text.Contains("2560 × 1440") && preview.Text.Contains("3440 × 1440"),
-                  "Wide output and fixed scene can differ in Pro 1080p");
-            if (gts) {
-                var height = (System.Windows.Forms.ComboBox)display.Controls.Find("WideSceneHeight", true).Single();
-                shape.SelectedIndex = 2;
-                Check(!scene.Enabled && height.Enabled && preview.Text.Contains("2576 × 1080"), "True wide owns the scene");
-                height.SelectedItem = "1440";
-                Check(preview.Text.Contains("Rendered at 3440 × 1440"), "Ultrawide render height follows the display aspect ratio");
-                height.SelectedItem = "2160";
-                Size capped = RenderResolution.TrueWideSize(new Size(3440, 1440), 2160);
-                Check(capped.Height < 2160 && preview.Text.Contains(capped.Width + " × " + capped.Height),
-                      "Ultra-wide requests above the renderer pixel budget show the capped size");
-                pro.SelectedIndex = 1;
-                Check(!scene.Enabled && !height.Enabled, "Checkerboard also excludes true wide allocation");
-                pro.SelectedIndex = 2;
-                output.SelectedItem = "1920 x 1080";
-                Check(scene.Enabled && !height.Enabled, "True wide on 16:9 restores the fixed scene");
-                output.SelectedItem = "3440 x 1440";
-            } else {
-                pro.SelectedIndex = 0;
-                shape.SelectedIndex = 2;
-                Check(!scene.Enabled && preview.Text.Contains("Rendered at 3440 × 1440"), "GT7 True wide follows the window");
-                output.SelectedItem = "5120 x 1440";
-                Check(preview.Text.Contains("Rendered at 5120 × 1440"), "GT7 True wide follows a 32:9 window");
-                Check(File.ReadAllText(game.ConfigPath(root)).Contains(RenderResolution.UltrawideWindow), "GT7 saves the native ultrawide profile");
-                using (var reopened = new LoaderForm(GameKind.GT7, root)) {
-                    var restored = (System.Windows.Forms.ComboBox)reopened.Controls.Find("CameraShape", true).Single();
-                    Check(restored.SelectedIndex == 2, "The GT7 native ultrawide profile reopens as True wide");
-                    restored.SelectedIndex = 0;
-                    Check(!File.ReadAllText(game.ConfigPath(root)).Contains(RenderResolution.UltrawideWindow), "Leaving True wide restores the saved render mode");
-                }
-            }
-            shape.SelectedIndex = 0;
-            Check(scene.Enabled && (string)scene.SelectedItem == "2560 x 1440" && preview.Text.Contains("centered"),
-                  "Leaving wide mode restores a centered image");
+            Check(scene.Enabled && preview.Text.Contains("2560 × 1440") && preview.Text.Contains("centered"),
+                  "Fixed 16:9 remains centered on a wide output");
             pro.SelectedIndex = 0;
+            scene.SelectedItem = "3440 x 1440";
+            Check(preview.Text.Contains("Rendered at 3440 × 1440"), "Exact ultrawide render size");
+            output.SelectedItem = "5120 x 1440";
+            Check(preview.Text.Contains("same aspect ratio"), "Warn before presenting a different wide aspect");
+            scene.SelectedItem = "5120 x 1440";
+            Check(preview.Text.Contains("Rendered at 5120 × 1440"), "32:9 at 1440p");
+            scene.SelectedItem = "3840 x 1080";
+            Check(preview.Text.Contains("Rendered at 3840 × 1080  →  Window 5120 × 1440"), "32:9 at 1080p in a larger window");
+            var stored = File.ReadAllText(game.ConfigPath(root));
+            Check(stored.Contains("3840x1080") && (!gts || stored.Contains("\"wide_scene_height\":1080")), "Exact wide preset reaches the game profile");
+            // Reopen a custom size absent from the built-in presets and its monitor modes.
+            File.WriteAllText(game.ConfigPath(root), stored.Replace("3840x1080", "4096x1152"));
+            using (var reopened = new LoaderForm(game.Kind, root)) {
+                var selected = (System.Windows.Forms.ComboBox)reopened.Controls.Find("SceneResolution", true).Single();
+                Check((string)selected.SelectedItem == "4096 x 1152", "Custom ultrawide selection survives reopening");
+            }
+            scene.SelectedItem = "2560 x 1440";
+            Check(preview.Text.Contains("centered"), "Switching back to a standard render size restores 16:9");
             scene.SelectedIndex = 0;
             var method = (System.Windows.Forms.ComboBox)graphics.Controls.Find("UpscalingMethod", true).Single();
             method.SelectedItem = "NVIDIA DLSS";

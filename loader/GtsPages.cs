@@ -692,32 +692,6 @@ namespace RyGT
         }
 
 
-        void AddGtsWideHeight(TableLayoutPanel panel)
-        {
-            // Wide scene height (GPU.wide_scene_height): the height the true wide scene renders at;
-            // its width follows the screen's shape. Lower is faster.
-            var height = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
-            var heights = new[] { 720, 900, 1080, 1200, 1440, 1800, 2160 };
-            foreach (int h in heights) height.Items.Add(h.ToString());
-            int savedHeight = ReadIntSetting("GPU", "wide_scene_height", 0);
-            if (savedHeight == 0) int.TryParse(ReadStringSetting("GPU", "wide_scene_height", "1080"), out savedHeight);
-            height.SelectedItem = (heights.Contains(savedHeight) ? savedHeight : 1080).ToString();
-            var heightRow = new SettingRow("Ultrawide render height", height);
-            panel.Controls.Add(heightRow);
-            height.Name = "WideSceneHeight";
-            enableWideHeight = delegate(bool enabled) {
-                heightRow.Visible = height.Enabled = enabled;
-            };
-            refreshSceneChoice();
-            height.SelectedIndexChanged += delegate
-            {
-                try { WriteSetting("GPU", "wide_scene_height", heights[height.SelectedIndex]); refreshSceneChoice(); }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-            };
-        }
-
-
-        // The controls the true wide screen shape turns on (set when they are made).
         CheckBox uiHiresBox;
 
         ComboBox rendererCombo;

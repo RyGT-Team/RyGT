@@ -59,12 +59,13 @@ namespace RyGT
         }
 
         internal static readonly string[] NativeModes = {
-            "game", "display", "1280x720", "1600x900", "1920x1080", "2560x1440", "3200x1800", "3840x2160"
+            "game", "display", "1280x720", "1600x900", "1920x1080", "2560x1080", "3840x1080",
+            "2560x1440", "3440x1440", "5120x1440", "3840x1600", "3200x1800", "3840x2160"
         };
 
         public const string UltrawideWindow = "ultrawide_window";
 
-        static bool SupportsWideScene(Size size)
+        public static bool SupportsWideScene(Size size)
         {
             // Use the same width alignment and UHD pixel budget as GT Sport's True wide.
             return size.Width >= 640 && size.Width <= 7680 && size.Width % 16 == 0 &&
@@ -83,9 +84,14 @@ namespace RyGT
                 if (units < 1) throw new ArgumentOutOfRangeException("output");
                 return new Size(units * 16, units * 9);
             }
-            if (Array.IndexOf(NativeModes, mode) < 2) return null;
-            string[] parts = mode.Split('x');
-            return new Size(int.Parse(parts[0]), int.Parse(parts[1]));
+            string[] parts = (mode ?? "").Split('x');
+            int width, height;
+            if (parts.Length != 2 || !int.TryParse(parts[0], out width) || !int.TryParse(parts[1], out height))
+                return null;
+            var size = new Size(width, height);
+            bool standard = width >= 640 && width <= 3840 && height >= 360 && height <= 2160 &&
+                            width * 9 == height * 16;
+            return standard || SupportsWideScene(size) ? (Size?)size : null;
         }
 
         static double ConfiguredAspect(string value)
@@ -106,10 +112,36 @@ namespace RyGT
             return value == "auto" || (ratio > 0.5 && ratio < 6 && Math.Abs(ratio - 16.0 / 9) >= 0.01);
         }
 
-        public static bool WideAllocation(string aspect, Size output)
+        public static string ModeKey(Size size)
         {
-            double ratio = aspect == "auto" ? (double)output.Width / output.Height : ConfiguredAspect(aspect);
-            return ratio > 16.0 / 9 + 0.01 && ratio < 6;
+            return size.Width + "x" + size.Height;
+        }
+
+        public static string WideOutputWarning(Size scene, Size output)
+        {
+            // Wide frames fill the window. Account for the compositor's 16-pixel alignment.
+            if (Math.Abs(scene.Width - (double)output.Width * scene.Height / output.Height) <= 8)
+                return null;
+            return "Choose a window or display with the same aspect ratio as " +
+                   scene.Width + " × " + scene.Height + " to keep the picture in proportion.";
+        }
+
+        public static string SavedMode(bool gts, Func<string, object> setting, Size output)
+        {
+            string mode = setting("native_resolution") as string ?? (Equals(setting("native_4k"), true) ? "3840x2160" : "game");
+            if (mode == UltrawideWindow)
+                return SupportsWideScene(output) ? ModeKey(output) : setting("native_resolution_16_9") as string ?? "game";
+            Size? size = NativeSize(mode, output);
+            if (size.HasValue && SupportsWideScene(size.Value)) return mode;
+            // Older GTS profiles stored the height separately and derived the width at launch.
+            if (gts && Equals(setting("wide_scene"), true) && !Equals(setting("wide_scene_alloc"), false) &&
+                !Equals(setting("native_renderer"), false) && !Equals(setting("ui_hires"), false) &&
+                MatchOutputShape(setting("aspect_ratio") as string) && IsWideOutput(output)) {
+                int height;
+                int.TryParse(Convert.ToString(setting("wide_scene_height")), out height);
+                return ModeKey(TrueWideSize(output, height));
+            }
+            return mode;
         }
 
         public static bool IsWideOutput(Size output)
