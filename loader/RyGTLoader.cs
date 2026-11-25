@@ -3629,12 +3629,22 @@ namespace RyGT
             string mode = RenderResolution.SavedMode(gts, setting, output);
             string forced = env["RYGT_NATIVE_4K"];
             if (forced != null) mode = forced == "1" ? "3840x2160" : "game";
+            bool dlssPerformance = env["RYGT_DLSS_PERFORMANCE_INPUT"] == "1" && forced == null &&
+                mode == "game" && output == new Size(3840, 2160) && pro == "off" &&
+                Equals(setting("dlss_enabled"), true) && !Equals(setting("fsr_enabled"), true);
+            if (dlssPerformance) {
+                mode = "1920x1080";
+                env["SHADGT_DLSS_STREAMLINE"] = gts ? "0" : "1";
+                env["SHADGT_DLSS_TEMPORAL"] = "1";
+                env["SHADGT_DLSS_QUALITY"] = env["SHADGT_UPSCALE_QUALITY"] = "performance";
+                env["SHADGT_UPSCALE_RATIO"] = "2";
+            }
             Size? size = RenderResolution.NativeSize(mode, output);
             bool wide = size.HasValue && RenderResolution.SupportsWideScene(size.Value);
             if (gts && !wide && env["SHADGT_WIDE_SCENE"] == null)
                 env["SHADGT_WIDE_SCENE"] = "0";
             if (!size.HasValue) return;
-            if (Equals(setting("fsr_enabled"), true) || Equals(setting("dlss_enabled"), true))
+            if (!dlssPerformance && (Equals(setting("fsr_enabled"), true) || Equals(setting("dlss_enabled"), true)))
                 throw new InvalidOperationException("Turn off upscaling to choose a render resolution.");
             if (Equals(setting("native_renderer"), false) || Equals(setting("experimental_render_scale"), true))
                 throw new InvalidOperationException("Choose the Native renderer and turn off experimental viewport scaling for a fixed render resolution.");
