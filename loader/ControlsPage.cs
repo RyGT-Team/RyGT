@@ -1007,13 +1007,13 @@ namespace RyGT
         static readonly string[] StickKeys = { "_x_minus", "_x_plus", "_y_minus", "_y_plus" };
         static readonly string[] StickKeyNames = { "Left", "Right", "Up", "Down" };
 
-        public ControlsPage(string root, Func<string, string, int, int> readInt, Action<string, string, object> write, Action openPorts)
+        public ControlsPage(string root, GameInfo game, Func<string, string, int, int> readInt, Action<string, string, object> write, Action openPorts)
         {
             this.readInt = readInt;
             this.write = write;
             this.openPorts = openPorts;
             bindings = new Bindings(root);
-            wheel = new Wheel(root);
+            wheel = new Wheel(root, game);
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             BackColor = Dark.Panel;
 
@@ -1122,6 +1122,7 @@ namespace RyGT
             present.SelectedIndex = Math.Max(0, Math.Min(Wheel.PresentNames.Length - 1, wheel.Present));
             present.SelectedIndexChanged += delegate { wheel.Present = present.SelectedIndex; SaveWheel(); };
             wheelExtras.Controls.Add(new SettingRow("Game sees", present));
+            wheelExtras.Controls.Add(Note(Wheel.T300ModeHint));
             wheelExtras.Controls.Add(Note("The wheel model the game is told it has; it uses that model's force feedback."));
             var padIsWheel = new ToggleRow { Text = "Pad reports as the wheel (experimental)", Checked = wheel.PadIsWheel };
             padIsWheel.CheckedChanged += delegate { wheel.PadIsWheel = padIsWheel.Checked; SaveWheel(); };

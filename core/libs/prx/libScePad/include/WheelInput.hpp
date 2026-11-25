@@ -59,6 +59,7 @@ public:
     bool Update();
     void Apply(PadInputState& state) const;
     WheelState State() const;
+    SDL_JoystickID AttachedWheel() const;
     // Called from any thread; the forces are played on the wheel by the next Update.
     void SetForces(const WheelForces& forces);
     void SetForces(const WheelForces& forces, bool drivingCommand);

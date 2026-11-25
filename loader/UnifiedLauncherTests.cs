@@ -627,6 +627,33 @@ namespace RyGT
             Check(NotDecryptedException.FromConverterLog(log, "eboot.bin") == null, "Other converter failures keep the generic message");
         }
 
+        static void WheelSettingsChecks(string root)
+        {
+            var folder = Path.Combine(root, "wheel-settings");
+            Directory.CreateDirectory(folder);
+            var legacy = Path.Combine(folder, "ryty-wheel.ini");
+            const string oldSettings = "Present = 046d:c24f\r\nFfbGain = 55\r\nCapability = 0x10\r\n";
+            File.WriteAllText(legacy, oldSettings);
+
+            var gt7 = new Wheel(folder, GameInfo.GT7);
+            Check(gt7.Present == 1 && gt7.Gain == 55, "GT7 inherits the shared wheel settings");
+            gt7.Present = Array.IndexOf(Wheel.PresentIds, "044f:b66d");
+            gt7.Save();
+
+            var gts = new Wheel(folder, GameInfo.GTSport);
+            Check(gts.Present == 1, "GT Sport keeps its wheel profile after GT7 saves");
+            gts.Present = 0;
+            gts.Save();
+
+            gt7 = new Wheel(folder, GameInfo.GT7);
+            gts = new Wheel(folder, GameInfo.GTSport);
+            Check(Wheel.PresentIds[gt7.Present] == "044f:b66d", "GT7 reloads the native T300RS identity");
+            Check(Wheel.PresentIds[gts.Present] == "0eb7:0e05", "GT Sport reloads its own profile");
+            Check(File.ReadAllText(legacy) == oldSettings, "Saving preserves the shared wheel settings");
+            Check(File.ReadAllText(Wheel.SettingsPath(folder, GameInfo.GT7)).Contains("Capability = 0x10"),
+                "The per-game file keeps settings that are not edited by the launcher");
+        }
+
         static int Main()
         {
             string root = Path.Combine(Path.GetTempPath(), "RyGT-unified-test-" + Guid.NewGuid().ToString("N"));
@@ -635,6 +662,7 @@ namespace RyGT
             {
                 StateChecks(root);
                 SettingsChecks(root);
+                WheelSettingsChecks(root);
                 AccentChecks();
                 FormChecks(root);
                 OldLauncherChecks(root);

@@ -62,10 +62,22 @@ namespace RyGT
             new Row { Action = "TouchLeft", Label = "Touchpad (left)" },
         };
 
-        // The wheel models the game can be told it has (ryty-wheel.ini "Present"); the game
+        // FEAT-RT-031: the models the game can be told it has (wheel settings "Present"); the game
         // uses that model's own force feedback driver.
-        public static readonly string[] PresentNames = { "Fanatec direct drive (recommended)", "Logitech G29" };
-        static readonly string[] PresentIds = { "0eb7:0e05", "046d:c24f" };
+        public static readonly string[] PresentNames = { "Fanatec direct drive (recommended)", "Logitech G29", "Thrustmaster T300RS (experimental)" };
+        internal static readonly string[] PresentIds = { "0eb7:0e05", "046d:c24f", "044f:b66d" };
+        internal const string T300ModeHint = "For the T300RS profile, keep the physical wheel in PS3/PC mode.";
+
+        internal static string SettingsPath(string root, GameInfo game)
+        {
+            return Path.Combine(root, game.TitleId + ".ryty-wheel.ini");
+        }
+
+        // Both games can inherit settings from a release made before the per-game files.
+        internal static string SettingsSource(string path)
+        {
+            return File.Exists(path) ? path : Path.Combine(Path.GetDirectoryName(path), "ryty-wheel.ini");
+        }
 
         // ryty-wheel.ini's settings.
         public int Rotation = 900, Gain = 100, Damping = 10, Detail = 0, Present;
@@ -88,10 +100,10 @@ namespace RyGT
         /// What detection says now ("Now press ...", "Steering: axis 0.").
         public string Status = "";
 
-        public Wheel(string root)
+        public Wheel(string root, GameInfo game)
         {
             inputPath = Path.Combine(root, "ryty-input.ini");
-            wheelPath = Path.Combine(root, "ryty-wheel.ini");
+            wheelPath = SettingsPath(root, game);
             probePath = Path.Combine(root, "tools", "ryty-wheel-probe.exe");
             if (!File.Exists(probePath)) probePath = Path.Combine(root, "ryty-wheel-probe.exe");
             Load();
@@ -426,8 +438,9 @@ namespace RyGT
         Dictionary<string, string> ReadWheelSettings()
         {
             var result = new Dictionary<string, string>();
-            if (!File.Exists(wheelPath)) return result;
-            foreach (var line in File.ReadAllLines(wheelPath))
+            var source = SettingsSource(wheelPath);
+            if (!File.Exists(source)) return result;
+            foreach (var line in File.ReadAllLines(source))
             {
                 string value;
                 var key = ActionOf(line, out value);
@@ -475,7 +488,8 @@ namespace RyGT
                 { "PadIsWheel", PadIsWheel ? "1" : "0" },
                 { "Present", PresentIds[Math.Max(0, Math.Min(PresentIds.Length - 1, Present))] },
             };
-            var lines = File.Exists(wheelPath) ? File.ReadAllLines(wheelPath).ToList() : new List<string> { "# Racing wheel settings for RyGT (also editable in the launcher)." };
+            var settingsSource = SettingsSource(wheelPath);
+            var lines = File.Exists(settingsSource) ? File.ReadAllLines(settingsSource).ToList() : new List<string> { "# Racing wheel settings for RyGT (also editable in the launcher)." };
             var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < lines.Count; ++i)
             {

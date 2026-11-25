@@ -13,6 +13,8 @@ CI fails when the two disagree.
   an independent scene preset. Disable upscaling and experimental scene scaling
   to use a native scene profile. `RYGT_NATIVE_4K=0` disables the override for
   one launch and `RYGT_NATIVE_4K=1` selects the 4K reference.
+* FEAT-RT-031: Add an experimental native Thrustmaster T300RS profile for GT7 and GT Sport.
+  Each game saves its own wheel settings, with the old shared file as the initial settings.
 
 ## 0.3.19 - 2026-11-23
 
