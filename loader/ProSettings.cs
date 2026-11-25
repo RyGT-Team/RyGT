@@ -87,10 +87,9 @@ namespace RyGT
             return env["SHADGT_NEO_TV"] == "1080" ? "1080p" : "4k";
         }
 
-        CheckBox AddProSettings(TableLayoutPanel graphicsPage, Func<bool> dlssSelected, Label methodProWarning,
+        CheckBox AddProSettings(TableLayoutPanel pro, Func<bool> dlssSelected, Label methodProWarning,
                                 out Action refreshWarning)
         {
-            var pro = Section(graphicsPage, "PS4 Pro mode");
             var proKeys = ProModes;
             var proMode = new DarkComboBox { Name = "ProMode", DropDownStyle = ComboBoxStyle.DropDownList, Width = 320, FlatStyle = FlatStyle.Flat };
             proMode.Items.AddRange(new object[] { "PS4 (no Pro mode)", "PS4 Pro, 4K TV", "PS4 Pro, 1080p TV", "Full (everything on)", "Custom" });

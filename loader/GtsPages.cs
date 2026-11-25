@@ -22,23 +22,10 @@ namespace RyGT
     {
         /// GT Sport's Display, Graphics and Controls pages (the Game, Shaders, About and Advanced pages are
         /// both games'; RyGTLoader.cs).
-        void BuildGtsPages(TableLayoutPanel displayPage, TableLayoutPanel graphicsPage)
+        void BuildGtsPages(TableLayoutPanel graphicsPage, TableLayoutPanel pro, TableLayoutPanel upscaling, TableLayoutPanel frameGen)
         {
-            var display = Section(displayPage, "Screen");
-            AddVulkanDeviceSetting(display);
-            AddScreenSettings(display);
-            AddShapeSetting(display);
-            AddOption(display, "Fast flips (improves frame pacing)", "GPU", "fast_flips", false);
-            AddOption(display, "Show an FPS counter", "General", "show_fps_counter", false);
-            AddOption(display, "Show the splash screen while the game starts", "General", "show_splash", false);
-            AddOption(display, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
-            // The game's opening movie (when its own option plays it); off: skipped at once.
-            AddOption(display, "Play the opening movie", "General", "opening_movie", true);
-            AddMemorySetting(display);
-
             // Graphics.
             var graphics = Section(graphicsPage, "Graphics");
-            AddRendererSetting(graphics);
             AddExperimentalRenderScale(graphics);
             // Sparks, tire smoke and other effects are always on; an older launcher could have
             // turned them off in the config.
@@ -414,7 +401,6 @@ namespace RyGT
             updateMirror();
             // The Graphics tab: one card per subject. The older controls stay hidden and hold the
             // settings' logic; the unified choices below drive them.
-            Control rendererRow = graphics.Controls[1];
             var sceneBox = graphics.Controls.OfType<CheckBox>().First(c => c.Text.StartsWith("Scene"));
             var sceneCombo = graphics.Controls.OfType<DarkComboBox>().First();
             graphics.Visible = false;
@@ -429,10 +415,6 @@ namespace RyGT
             };
             Func<DarkComboBox> combo = () => new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 380, FlatStyle = FlatStyle.Flat };
 
-            display.Controls.Add(rendererRow);
-            display.Controls.SetChildIndex(rendererRow, display.Controls.GetChildIndex(display.Controls.OfType<FlowLayoutPanel>().First()) + 1); // under the Vulkan device
-
-            var upscalerCard = Section(graphicsPage, "Upscaler");
             var upscaler = combo();
             upscaler.Name = "UpscalingMethod";
             upscaler.Items.AddRange(new object[] { "Off", "AMD FSR 4", "AMD FSR 3", "AMD FSR 1", "NVIDIA DLSS", "Intel XeSS" });
@@ -468,10 +450,10 @@ namespace RyGT
                 }
                 lastUpscaler = pick;
             };
-            row(upscalerCard, "Upscaler", upscaler);
+            row(upscaling, "Method", upscaler);
             var methodProWarning = Hint("");
             methodProWarning.ForeColor = Dark.AccentText;
-            upscalerCard.Controls.Add(methodProWarning);
+            upscaling.Controls.Add(methodProWarning);
             // Below 100% lowers the scene (render scale); above it the upscaler's output grows.
             var qualities = new[] {
                 new[] { "Ultra Performance - 33%", "0", "" },
@@ -497,10 +479,10 @@ namespace RyGT
                 try { WriteSetting("GPU", "upscale_ratio", item[2] != "" ? item[2] : "0"); }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
-            row(upscalerCard, "Quality / Supersampling", quality);
+            row(upscaling, "Quality / Supersampling", quality);
             var qualityGuide = Hint("");
             qualityGuide.Name = "ImageQualityGuide";
-            upscalerCard.Controls.Add(qualityGuide);
+            upscaling.Controls.Add(qualityGuide);
             Action updateQualityGuide = delegate {
                 qualityGuide.Text = upscaler.SelectedIndex == 4
                     ? UseDlssGuide + " Start with Quality. Try Ultra Quality for more detail, or Balanced then Performance if you need more FPS."
@@ -513,9 +495,8 @@ namespace RyGT
             updateQualityGuide();
             // PERF-210: AMD Anti-Lag (VK_AMD_anti_lag; AMD GPUs whose driver has it). Frame
             // generation paces its own frames, so Anti-Lag is off while it is on.
-            var antiLag = AddOption(upscalerCard, "", "GPU", "anti_lag", false);
+            var antiLag = AddOption(upscaling, "", "GPU", "anti_lag", false);
 
-            var frameCard = Section(graphicsPage, "Frame generation");
             var frames = combo();
             frames.Items.AddRange(new object[] { "Off", "AMD FSR - about 2x frames", "NVIDIA DLSS - about 2x frames (RTX 40+)" });
             frames.SelectedIndex = dlssg.Checked ? 2 : framegen.Checked ? 1 : 0;
@@ -530,7 +511,7 @@ namespace RyGT
                 framegen.Checked = frames.SelectedIndex == 1;
                 dlssg.Checked = frames.SelectedIndex == 2;
             };
-            row(frameCard, "Frame generation", frames);
+            row(frameGen, "Method", frames);
             Action updateAntiLag = delegate
             {
                 bool generated = frames.SelectedIndex != 0;
@@ -576,7 +557,7 @@ namespace RyGT
             var extras = Section(graphicsPage, "Enhancements");
             AddOption(extras, "Disable motion blur", "GPU", "disable_motion_blur", false);
             Action refreshProWarning;
-            checkerboard = AddProSettings(graphicsPage, () => dlss.Checked, methodProWarning, out refreshProWarning);
+            checkerboard = AddProSettings(pro, () => dlss.Checked, methodProWarning, out refreshProWarning);
             dlss.CheckedChanged += delegate {
                 if (dlss.Checked && checkerboard.Checked) {
                     dlss.Checked = false;
@@ -586,13 +567,6 @@ namespace RyGT
             };
             uiHiresBox = AddOption(extras, "Draw the UI at screen resolution", "GPU", "ui_hires", false);
             uiHiresBox.CheckedChanged += delegate { refreshSceneChoice(); };
-            var hdr = (ToggleRow)AddOption(extras, "HDR (experimental; needs Windows HDR on)", "GPU", "hdr_allowed", false);
-            // FEAT-GTS-527: GT Sport stays in SDR until its own HDR Output is on (saved in the game's progression).
-            hdr.NoLine = true;
-            var hdrHint = Hint("Also turn on HDR Output in the game (Options > Video Output), then set the game's HDR Peak Brightness.");
-            hdrHint.Margin = new Padding(0, 0, 0, 30); // the page's last control: its bottom padding is lost when scrolled
-            extras.Controls.Add(hdrHint);
-
             // ---- Controls: which controller is which player (splitscreen) with a live preview, the
             // controller and keyboard bindings, and racing wheels and pedals (ryty-input.ini /
             // ryty-wheel.ini, read by libScePad).
@@ -718,72 +692,23 @@ namespace RyGT
         }
 
 
-        // System memory (GPU.system_ram_gb): how much the game may use for things it can do
-        // without. Both profiles retain the shader store, startup precompilation and persistent
-        // pipeline cache. The 16 GB profile keeps fewer freed GPU images for reuse.
-        // Picked from installed RAM the first time; shader precompilation has its own checkbox.
-        // Screen shape (GPU.aspect_ratio, GTS-009 in renderer patch 0051): GT Sport draws a 16:9
-        // picture. "Fill the screen" widens the race camera to the shape of the game's window or
-        // screen and stretches the picture over it (ultrawide without black bars; the HUD and menus
-        // are stretched too). "True wide" (GPU.wide_scene, WIDE-001 in the renderer) renders the
-        // scene at the screen's shape instead: nothing is stretched, the race HUD moves to the
-        // screen's edges and the menus stay 16:9 in the middle. It needs the native renderer and
-        // the UI at screen resolution, which it turns on. Read when the game starts.
-        void AddShapeSetting(TableLayoutPanel panel)
+        void AddGtsWideHeight(TableLayoutPanel panel)
         {
-            var row = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
-            var label = new Label { Text = "Screen shape", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
-            var shape = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
-            shape.Items.AddRange(new object[] { "16:9 (the game's own)", "Fill the screen (stretched)", "True wide (ultrawide, 21:9 / 32:9)" });
-            shape.Name = "CameraShape";
-            bool fill = RenderResolution.MatchOutputShape(ReadStringSetting("GPU", "aspect_ratio", "16:9"));
-            shape.SelectedIndex = !fill ? 0 : ReadSetting("GPU", "wide_scene", false) ? 2 : 1;
-            row.Controls.Add(label);
-            row.Controls.Add(shape);
-            panel.Controls.Add(row);
-
             // Wide scene height (GPU.wide_scene_height): the height the true wide scene renders at;
             // its width follows the screen's shape. Lower is faster.
-            var heightRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
-            var heightLabel = new Label { Text = "Ultrawide render height", AutoSize = false, Width = 196, Height = 20, BackColor = Color.Transparent, Margin = new Padding(0, 6, 8, 0) };
             var height = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
             var heights = new[] { 720, 900, 1080, 1200, 1440, 1800, 2160 };
             foreach (int h in heights) height.Items.Add(h.ToString());
             int savedHeight = ReadIntSetting("GPU", "wide_scene_height", 0);
             if (savedHeight == 0) int.TryParse(ReadStringSetting("GPU", "wide_scene_height", "1080"), out savedHeight);
             height.SelectedItem = (heights.Contains(savedHeight) ? savedHeight : 1080).ToString();
-            heightRow.Controls.Add(heightLabel);
-            heightRow.Controls.Add(height);
+            var heightRow = new SettingRow("Ultrawide render height", height);
             panel.Controls.Add(heightRow);
-            var tip = new Label { AutoSize = true, ForeColor = Dark.DimText, Tag = "heading", BackColor = Color.Transparent, Margin = new Padding(0, 8, 0, 4),
-                Text = "True wide uses the output shape and limits the scene to the pixel count of 3840 × 2160." };
-            panel.Controls.Add(tip);
-
             height.Name = "WideSceneHeight";
             enableWideHeight = delegate(bool enabled) {
-                height.Enabled = heightLabel.Enabled = enabled;
+                heightRow.Visible = height.Enabled = enabled;
             };
             refreshSceneChoice();
-            shape.SelectedIndexChanged += delegate
-            {
-                try
-                {
-                    bool wide = shape.SelectedIndex == 2;
-                    WriteSetting("GPU", "aspect_ratio", shape.SelectedIndex == 0 ? "16:9" : "auto");
-                    WriteSetting("GPU", "wide_scene", wide);
-                    if (wide)
-                    {
-                        WriteSetting("GPU", "wide_scene_height", heights[height.SelectedIndex]);
-                        // What the true wide scene needs; the controls show it too.
-                        WriteSetting("GPU", "ui_hires", true);
-                        if (uiHiresBox != null) uiHiresBox.Checked = true;
-                        WriteSetting("GPU", "native_renderer", true);
-                        if (rendererCombo != null) rendererCombo.SelectedIndex = 1;
-                    }
-                }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-                refreshSceneChoice();
-            };
             height.SelectedIndexChanged += delegate
             {
                 try { WriteSetting("GPU", "wide_scene_height", heights[height.SelectedIndex]); refreshSceneChoice(); }

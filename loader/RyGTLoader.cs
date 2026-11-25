@@ -2487,24 +2487,19 @@ namespace RyGT
             Action afterRowify = null;
             if (ready)
             {
+                if (target == GameKind.GT7) EnsureGT7Defaults();
+                var displayPage = NewPage("Display", "Display", "Window, render resolution, ultrawide and HDR. Changes apply at the next game start.");
+                var graphicsPage = NewPage("Graphics", "Graphics", "Console mode, upscaling and rendering options. Changes apply at the next game start.");
+                var shadersPage = NewPage("Shaders", "Shaders", "Shaders are built once per car and track; these settings decide when that happens.");
+                BuildDisplaySettings(displayPage);
+                var pro = Section(graphicsPage, "PS4 Pro mode");
+                var upscaling = Section(graphicsPage, "Upscaling");
+                var frameGen = Section(graphicsPage, "Frame generation");
                 if (target == GameKind.GT7)
-                {
-                    EnsureGT7Defaults();
-                    var displayPage = NewPage("Display", "Display", "How the game's window looks. Changes apply the next time you play.");
-                    var graphicsPage = NewPage("Graphics", "Graphics", "The renderer, upscaling and frame generation. Changes apply the next time you play.");
-                    var shadersPage = NewPage("Shaders", "Shaders", "Shaders are built once per car and track; these settings decide when that happens.");
-                    afterRowify = BuildGt7Pages(displayPage, graphicsPage);
-                    BuildShadersPage(shadersPage);
-                }
+                    afterRowify = BuildGt7Pages(graphicsPage, pro, upscaling, frameGen);
                 else
-                {
-                    // Display, Graphics and Shaders: saved as they change; the game reads them when it starts.
-                    var displayPage = NewPage("Display", "Display", "How the game's window looks and which GPU draws it. Changes apply the next time you play.");
-                    var graphicsPage = NewPage("Graphics", "Graphics", "Upscaling, frame generation, sharpening and effects. Changes apply the next time you play.");
-                    var shadersPage = NewPage("Shaders", "Shaders", "Shaders are built once per car and track; these settings decide when that happens.");
-                    BuildGtsPages(displayPage, graphicsPage);
-                    BuildShadersPage(shadersPage);
-                }
+                    BuildGtsPages(graphicsPage, pro, upscaling, frameGen);
+                BuildShadersPage(shadersPage);
             }
             BuildAboutPage(ready);
             if (ready) BuildAdvancedPage();
@@ -3653,7 +3648,7 @@ namespace RyGT
             }
             Size? size = RenderResolution.NativeSize(mode, output);
             if (mode == RenderResolution.UltrawideWindow && (!size.HasValue || game.Kind != GameKind.GT7))
-                throw new InvalidOperationException("Choose a supported ultrawide output, such as 3440 x 1440 or 5120 x 1440. GT Sport uses True wide under Screen shape.");
+                throw new InvalidOperationException("Choose a supported ultrawide output, such as 3440 x 1440 or 5120 x 1440. Select True wide under Display → Ultrawide.");
             if (mode == RenderResolution.UltrawideWindow && start.EnvironmentVariables["RYGT_NEO"] == "1")
                 throw new InvalidOperationException("Choose base PS4 mode to use native ultrawide rendering.");
             if (!size.HasValue) return;
@@ -3682,6 +3677,34 @@ namespace RyGT
 
         Action refreshSceneChoice;
         Action<bool> enableWideHeight;
+
+        void BuildDisplaySettings(TableLayoutPanel page)
+        {
+            bool gts = target == GameKind.GTSport;
+            AddScreenSettings(Section(page, "Screen"));
+            var hdr = Section(page, "HDR");
+            var hdrOutput = AddOption(hdr, "HDR output", "GPU", "hdr_allowed", false);
+            hdrOutput.Name = "HdrOutput";
+            if (gts)
+                hdr.Controls.Add(Hint("Turn on HDR in Windows and HDR Output in the game's Options > Video Output. Set peak brightness there."));
+            else
+                AddGt7HdrLevels(hdr, hdrOutput);
+
+            var hardware = Section(page, "Hardware");
+            AddVulkanDeviceSetting(hardware);
+            if (gts) AddRendererSetting(hardware);
+            AddMemorySetting(hardware);
+            if (!gts) AddVideoMemorySetting(hardware);
+            var options = Section(page, "Display options");
+            AddOption(options, "Show an FPS counter", "General", "show_fps_counter", false);
+            AddOption(options, "Show the splash screen while the game starts", "General", "show_splash", false);
+            AddOption(options, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
+            if (gts)
+            {
+                AddOption(options, "Fast flips (improves frame pacing)", "GPU", "fast_flips", false);
+                AddOption(options, "Play the opening movie", "General", "opening_movie", true);
+            }
+        }
 
         void AddScreenSettings(TableLayoutPanel panel)
         {
@@ -3753,12 +3776,15 @@ namespace RyGT
                 }
             };
             var native = new DarkComboBox { Name = "SceneResolution", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
-            var nativeModes = target == GameKind.GT7 ? RenderResolution.NativeModes.Concat(new[] { RenderResolution.UltrawideWindow }).ToArray() : RenderResolution.NativeModes;
+            var nativeModes = RenderResolution.NativeModes;
+            string savedMode = ReadStringSetting("GPU", "native_resolution", ReadSetting("GPU", "native_4k", false) ? "3840x2160" : "game");
+            bool gts = target == GameKind.GTSport;
+            bool gt7Wide = !gts && savedMode == RenderResolution.UltrawideWindow;
             foreach (string option in nativeModes)
-                native.Items.Add(option == "game" ? "Game default" : option == "display" ? "Auto (fit to display, 16:9, up to 4K)" : option == RenderResolution.UltrawideWindow ? "Match ultrawide output" : option.Replace("x", " x "));
-            native.SelectedIndex = Math.Max(0, Array.IndexOf(nativeModes,
-                ReadStringSetting("GPU", "native_resolution", ReadSetting("GPU", "native_4k", false) ? "3840x2160" : "game")));
-            panel.Controls.Add(new SettingRow("Render resolution", native));
+                native.Items.Add(option == "game" ? "Game default" : option == "display" ? "Auto (fit to display, 16:9, up to 4K)" : option.Replace("x", " x "));
+            native.SelectedIndex = Math.Max(0, Array.IndexOf(nativeModes, gt7Wide ? ReadStringSetting("GPU", "native_resolution_16_9", "game") : savedMode));
+            var nativeRow = new SettingRow("Render resolution", native);
+            panel.Controls.Add(nativeRow);
             var effective = Hint("");
             effective.Name = "ScenePreview";
             panel.Controls.Add(effective);
@@ -3772,7 +3798,8 @@ namespace RyGT
                 bool wide = trueWide && ReadSetting("GPU", "native_renderer", false) && ReadSetting("GPU", "ui_hires", false) &&
                             ReadSetting("GPU", "wide_scene_alloc", true);
                 bool checker = UsesCheckerboard(SavedProMode(), ReadSetting("GPU", "ps4_pro_checkerboard", false));
-                native.Enabled = !checker && !wide;
+                native.Enabled = !checker && !wide && !gt7Wide;
+                nativeRow.Visible = !gt7Wide && !wide;
                 if (enableWideHeight != null) enableWideHeight(wide && !checker);
                 var scene = RenderResolution.NativeSize(nativeModes[native.SelectedIndex], output);
                 string pixels = output.Width + " × " + output.Height;
@@ -3780,6 +3807,11 @@ namespace RyGT
                 effective.ForeColor = checker ? Dark.AccentText : Dark.DimText;
                 if (checker) {
                     effective.Text = CheckerboardWarning + " " + Native4kGuide + " " + displayed;
+                } else if (gt7Wide) {
+                    bool supported = RenderResolution.NativeSize(RenderResolution.UltrawideWindow, output).HasValue;
+                    effective.Text = SavedProMode() != "off" ? "Choose base PS4 mode for native ultrawide rendering in GT7." :
+                        supported ? "Rendered at " + pixels + "  →  " + displayed :
+                        "Choose an ultrawide window size such as 3440 × 1440 or 5120 × 1440.";
                 } else {
                     int h = ReadIntSetting("GPU", "wide_scene_height", 0);
                     if (h == 0) int.TryParse(ReadStringSetting("GPU", "wide_scene_height", "1080"), out h);
@@ -3850,24 +3882,34 @@ namespace RyGT
                 customSize.Enabled = screen.SelectedIndex == 0;
                 showScene();
             };
-            // FEAT-GTS-290: GT7's Ultrawide row (GT Sport has its Screen shape row instead).
-            if (target == GameKind.GT7)
-            {
-                // The output picker owns the size. This picker controls camera and HUD geometry.
-                var wideRow = new FlowLayoutPanel { AutoSize = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = false };
-                var wide = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, FlatStyle = FlatStyle.Flat };
-                wide.Items.AddRange(new object[] { "Off (16:9)", "Match display aspect ratio" });
-                wide.Name = "CameraShape";
-                wide.SelectedIndex = RenderResolution.MatchOutputShape(ReadStringSetting("GPU", "aspect_ratio", "16:9")) ? 1 : 0;
-                wideRow.Controls.Add(new Label { Text = "Ultrawide camera", Width = 196, Height = 20, Margin = new Padding(0, 6, 8, 0) });
-                wideRow.Controls.Add(wide);
-                panel.Controls.Add(wideRow);
-                wide.SelectedIndexChanged += delegate {
-                    try { WriteSetting("GPU", "aspect_ratio", wide.SelectedIndex == 0 ? "16:9" : "auto"); }
-                    catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-                    showScene();
-                };
-            }
+            var shape = new DarkComboBox { Name = "CameraShape", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
+            shape.Items.AddRange(new object[] { "Off (16:9)", gts ? "Fill display (stretched HUD)" : "Match display aspect ratio", "True wide (native)" });
+            bool matchAspect = RenderResolution.MatchOutputShape(ReadStringSetting("GPU", "aspect_ratio", "16:9"));
+            shape.SelectedIndex = gt7Wide || (gts && matchAspect && ReadSetting("GPU", "wide_scene", false)) ? 2 : matchAspect ? 1 : 0;
+            panel.Controls.Add(new SettingRow("Ultrawide", shape));
+            if (gts) AddGtsWideHeight(panel);
+            shape.SelectedIndexChanged += delegate {
+                bool wide = shape.SelectedIndex == 2;
+                try {
+                    WriteSetting("GPU", "aspect_ratio", shape.SelectedIndex == 0 ? "16:9" : "auto");
+                    if (gts) {
+                        WriteSetting("GPU", "wide_scene", wide);
+                        if (wide) {
+                            WriteSetting("GPU", "wide_scene_alloc", true);
+                            WriteSetting("GPU", "ui_hires", true);
+                            if (uiHiresBox != null) uiHiresBox.Checked = true;
+                            WriteSetting("GPU", "native_renderer", true);
+                            if (rendererCombo != null) rendererCombo.SelectedIndex = 1;
+                        }
+                    } else if (gt7Wide != wide) {
+                        string fixedMode = nativeModes[native.SelectedIndex];
+                        if (wide) WriteSetting("GPU", "native_resolution_16_9", fixedMode);
+                        WriteSetting("GPU", "native_resolution", wide ? RenderResolution.UltrawideWindow : fixedMode);
+                        gt7Wide = wide;
+                    }
+                } catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+                showScene();
+            };
             fillRates(ReadIntSetting("GPU", "fullscreen_refresh_rate", 0));
             enable();
             screen.SelectedIndexChanged += delegate {

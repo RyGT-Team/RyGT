@@ -172,6 +172,11 @@ namespace RyGT
             screen.SelectedIndex = 0;
             Check(output.Enabled && (string)output.SelectedItem == "1280 x 720", "Window size is restored after borderless");
             var graphics = pages["Graphics"];
+            var hdr = (System.Windows.Forms.CheckBox)display.Controls.Find("HdrOutput", true).Single();
+            hdr.Checked = true;
+            Check(File.ReadAllText(game.ConfigPath(root)).Contains("\"hdr_allowed\":true"), "HDR on Display writes the current game's profile");
+            hdr.Checked = false;
+            Check(shape.Items[2].ToString() == "True wide (native)", "Both games offer True wide in the same selector");
             var pro = (System.Windows.Forms.ComboBox)graphics.Controls.Find("ProMode", true).Single();
             var warning = graphics.Controls.Find("ProReconstructionWarning", true).Single();
             var guide = graphics.Controls.Find("ImageQualityGuide", true).Single();
@@ -213,6 +218,19 @@ namespace RyGT
                 output.SelectedItem = "1920 x 1080";
                 Check(scene.Enabled && !height.Enabled, "True wide on 16:9 restores the fixed scene");
                 output.SelectedItem = "3440 x 1440";
+            } else {
+                pro.SelectedIndex = 0;
+                shape.SelectedIndex = 2;
+                Check(!scene.Enabled && preview.Text.Contains("Rendered at 3440 × 1440"), "GT7 True wide follows the window");
+                output.SelectedItem = "5120 x 1440";
+                Check(preview.Text.Contains("Rendered at 5120 × 1440"), "GT7 True wide follows a 32:9 window");
+                Check(File.ReadAllText(game.ConfigPath(root)).Contains(RenderResolution.UltrawideWindow), "GT7 saves the native ultrawide profile");
+                using (var reopened = new LoaderForm(GameKind.GT7, root)) {
+                    var restored = (System.Windows.Forms.ComboBox)reopened.Controls.Find("CameraShape", true).Single();
+                    Check(restored.SelectedIndex == 2, "The GT7 native ultrawide profile reopens as True wide");
+                    restored.SelectedIndex = 0;
+                    Check(!File.ReadAllText(game.ConfigPath(root)).Contains(RenderResolution.UltrawideWindow), "Leaving True wide restores the saved render mode");
+                }
             }
             shape.SelectedIndex = 0;
             Check(scene.Enabled && (string)scene.SelectedItem == "2560 x 1440" && preview.Text.Contains("centered"),
