@@ -3610,6 +3610,16 @@ namespace RyGT
             return count;
         }
 
+        static bool SceneDlssAvailable(string root, Func<string, object> setting, string enabled)
+        {
+            return enabled != "0" && !Equals(setting("native_renderer"), false) &&
+                !Equals(setting("hdr_allowed"), true) && !Equals(setting("framegen_enabled"), true) &&
+                !Equals(setting("dlssg_enabled"), true) &&
+                App0Layout.FileContains(Path.Combine(root, "dlss", "ryGT_dlss.dll"), "RygtDlss_EvaluateTemporal\0") &&
+                File.Exists(Path.Combine(root, "dlss", "nvngx_dlss.dll")) &&
+                App0Layout.FileContains(Path.Combine(root, SwitchWalker.RendererFile), "RYGT_DLSS_OUTPUT_SIZE\0");
+        }
+
         static void ApplyNativeResolution(ProcessStartInfo start, string root, GameInfo game, Func<string, object> setting)
         {
             var env = start.EnvironmentVariables;
@@ -3631,41 +3641,38 @@ namespace RyGT
             if (forced != null) mode = forced == "1" ? "3840x2160" : "game";
             Size? size = RenderResolution.NativeSize(mode, output);
             bool dlss = Equals(setting("dlss_enabled"), true) && !Equals(setting("fsr_enabled"), true);
-            bool nativeQuality = gts ? Convert.ToString(setting("upscale_ratio"),
-                System.Globalization.CultureInfo.InvariantCulture) == "1" : Equals(setting("upscale_quality"), "native");
             string renderer = Path.Combine(root, SwitchWalker.RendererFile);
-            bool dlaa = dlss && nativeQuality && (size.HasValue || mode == "game") &&
-                (!size.HasValue || !RenderResolution.IsWideOutput(size.Value)) &&
-                pro == "off" && forced == null && !Equals(setting("native_renderer"), false) &&
-                !Equals(setting("experimental_render_scale"), true) && !Equals(setting("framegen_enabled"), true) &&
-                !Equals(setting("dlssg_enabled"), true) && env["RYGT_NATIVE_DLAA"] != "0" &&
-                File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll")) &&
-                App0Layout.FileContains(renderer, "RYGT_NATIVE_DLAA\0");
-            bool dlssPerformance = !dlaa && env["RYGT_DLSS_PERFORMANCE_INPUT"] == "1" && forced == null &&
-                mode == "3840x2160" && output == new Size(3840, 2160) && pro == "off" &&
-                dlss;
-            if (!dlaa && env["RYGT_NATIVE_DLAA"] == "1") env.Remove("RYGT_NATIVE_DLAA");
-            if (dlssPerformance || dlaa) {
+            string preset = RenderResolution.SavedDlssMode(gts, setting);
+            bool temporal = dlss && (size.HasValue || mode == "game") && pro == "off" &&
+                SceneDlssAvailable(root, setting, env["RYGT_DLSS_GUEST_OUTPUT"]) &&
+                (preset != "native" || env["RYGT_NATIVE_DLAA"] != "0");
+            Size? input = null;
+            if (temporal) {
+                size = size ?? RenderResolution.NativeSize(RenderResolution.Auto, output);
+                preset = RenderResolution.ResolveDlssMode(preset, size.Value);
+                input = RenderResolution.DlssScene(size.Value, preset);
                 env["RYGT_DLSS_GUEST_OUTPUT"] = "1";
+                env["RYGT_DLSS_SCENE_SIZE"] = RenderResolution.ModeKey(input.Value);
+                env["RYGT_DLSS_OUTPUT_SIZE"] = RenderResolution.ModeKey(size.Value);
+                env["RYGT_NATIVE_DLAA"] = preset == "native" ? "1" : "0";
                 env["SHADGT_DLSS_STREAMLINE"] = "0";
                 env["SHADGT_DLSS_TEMPORAL"] = "1";
-                env["SHADGT_DLSS_QUALITY"] = dlaa ? "dlaa" : "performance";
-                env["SHADGT_UPSCALE_QUALITY"] = dlaa ? "native" : "performance";
-                env["SHADGT_UPSCALE_RATIO"] = dlaa ? "1" : "2";
-                if (dlaa) {
-                    env["RYGT_NATIVE_DLAA"] = "1";
-                    var extent = size ?? new Size(1920, 1080);
-                    AppendSetupLog(root, game.TitleId, "DLAA requested: scene and guest output " +
-                        RenderResolution.ModeKey(extent) + ".");
-                }
+                if (gts && !RenderResolution.SupportsWideScene(size.Value)) env["SHADGT_UI_HIRES"] = "0";
+                env["SHADGT_DLSS_QUALITY"] = preset == "native" ? "dlaa" : preset;
+                env["SHADGT_UPSCALE_QUALITY"] = preset;
+                AppendSetupLog(root, game.TitleId, "Temporal DLSS " + preset + ": scene " +
+                    RenderResolution.ModeKey(input.Value) + ", output " + RenderResolution.ModeKey(size.Value) + ".");
+            } else if (dlss && size.HasValue) {
+                AppendSetupLog(root, game.TitleId, "Temporal DLSS at the selected resolution is unavailable. Using the game's default scene and the compatibility upscaler.");
+                return;
             }
             bool wide = size.HasValue && RenderResolution.SupportsWideScene(size.Value);
             if (gts && !wide && env["SHADGT_WIDE_SCENE"] == null)
                 env["SHADGT_WIDE_SCENE"] = "0";
             if (!size.HasValue) return;
-            if (!dlssPerformance && !dlaa && (Equals(setting("fsr_enabled"), true) || Equals(setting("dlss_enabled"), true)))
+            if (!temporal && (Equals(setting("fsr_enabled"), true) || Equals(setting("dlss_enabled"), true)))
                 throw new InvalidOperationException("Turn off upscaling to choose a render resolution.");
-            if (Equals(setting("native_renderer"), false) || Equals(setting("experimental_render_scale"), true))
+            if (Equals(setting("native_renderer"), false) || (!temporal && Equals(setting("experimental_render_scale"), true)))
                 throw new InvalidOperationException("Choose the Native renderer and turn off experimental viewport scaling for a fixed render resolution.");
             if (wide) {
                 string warning = RenderResolution.WideOutputWarning(size.Value, output);
@@ -3674,8 +3681,8 @@ namespace RyGT
                     throw new InvalidOperationException("Choose base PS4 mode to use native ultrawide rendering in GT7.");
                 if (gts) {
                     // WIDE-001 reads its height and allocation flag from the game's profile.
-                    if (Convert.ToString(setting("wide_scene_height")) != size.Value.Height.ToString() ||
-                        Equals(setting("wide_scene_alloc"), false))
+                    if (!temporal && (Convert.ToString(setting("wide_scene_height")) != size.Value.Height.ToString() ||
+                        Equals(setting("wide_scene_alloc"), false)))
                         SaveRenderMode(root, game, mode, size);
                     env["SHADGT_ASPECT"] = size.Value.Width + ":" + size.Value.Height;
                     env["SHADGT_WIDE_SCENE"] = env["SHADGT_UI_HIRES"] = "1";
@@ -3691,10 +3698,7 @@ namespace RyGT
                 if (!App0Layout.FileContains(renderer, patchVariable + "\0"))
                     throw new InvalidOperationException("This renderer does not support custom render resolutions.");
             }
-            Size? input = dlssPerformance ? new Size(1920, 1080) : (Size?)null;
             RenderResolution.ConfigureNative(start, root, game.Kind == GameKind.GT7, patchVariable, size.Value, pro == "1080p", input);
-            if (dlssPerformance)
-                AppendSetupLog(root, game.TitleId, "DLSS Performance requested: guest output 3840x2160, scene 1920x1080.");
             var scene = input ?? size.Value;
             AppendSetupLog(root, game.TitleId, "Native scene " + scene.Width + " x " + scene.Height +
                 ": RYGT_NEO=" + start.EnvironmentVariables["RYGT_NEO"] +
@@ -3873,6 +3877,7 @@ namespace RyGT
             var effective = Hint("");
             effective.Name = "ScenePreview";
             panel.Controls.Add(effective);
+            bool dlssLayoutInstalled = RendererReads("RYGT_DLSS_OUTPUT_SIZE");
             Action showScene = delegate {
                 if (resolution.SelectedIndex < 0 || native.SelectedIndex < 0) return;
                 var output = selectedOutput();
@@ -3888,6 +3893,19 @@ namespace RyGT
                 effective.ForeColor = warning != null ? Dark.AccentText : Dark.DimText;
                 string rendered = scene.HasValue ? "Rendered at " + scene.Value.Width + " × " + scene.Value.Height :
                                                    "Game default render resolution";
+                if (!checker && dlssLayoutInstalled && SavedProMode() == "off" &&
+                    ReadSetting("GPU", "dlss_enabled", false) && !ReadSetting("GPU", "fsr_enabled", false) &&
+                    ReadSetting("GPU", "native_renderer", true) && !ReadSetting("GPU", "hdr_allowed", false) &&
+                    !ReadSetting("GPU", "framegen_enabled", false) && !ReadSetting("GPU", "dlssg_enabled", false) &&
+                    Environment.GetEnvironmentVariable("RYGT_DLSS_GUEST_OUTPUT") != "0") {
+                    var current = ReadGpuSettings(root, info);
+                    string preset = RenderResolution.SavedDlssMode(gts, k => current.ContainsKey(k) ? current[k] : null);
+                    scene = scene ?? RenderResolution.NativeSize(RenderResolution.Auto, output);
+                    var dlssOutput = scene.Value;
+                    var input = RenderResolution.DlssScene(dlssOutput, RenderResolution.ResolveDlssMode(preset, dlssOutput));
+                    rendered = "Scene " + input.Width + " × " + input.Height + "  →  " +
+                        (preset == "native" ? "DLAA " : "DLSS ") + dlssOutput.Width + " × " + dlssOutput.Height;
+                }
                 effective.Text = warning != null ? warning + " " + displayed : rendered + "  →  " + displayed;
                 if (warning == null && RenderResolution.IsWideOutput(output) && (!scene.HasValue || !RenderResolution.IsWideOutput(scene.Value)))
                     effective.Text += " The 16:9 image is centered.";

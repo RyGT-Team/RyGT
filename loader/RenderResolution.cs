@@ -8,6 +8,52 @@ namespace RyGT
 {
     internal static class RenderResolution
     {
+        internal static readonly string[] DlssModes = { "auto", "native", "quality", "balanced", "performance", "ultra_performance" };
+        internal static readonly string[] DlssLabels = { "Auto", "DLAA (native resolution)", "Quality", "Balanced", "Performance", "Ultra Performance" };
+
+        internal static string SavedDlssMode(bool gts, Func<string, object> setting)
+        {
+            string mode = setting(gts ? "dlss_preset" : "upscale_quality") as string;
+            if (gts && mode == null) {
+                if (Equals(setting("experimental_render_scale"), true)) {
+                    mode = setting("experimental_render_preset") as string;
+                    if (mode == "ultra_quality") mode = "quality";
+                    if (mode == "dlaa") mode = "native";
+                } else {
+                    switch (Convert.ToString(setting("upscale_ratio"), System.Globalization.CultureInfo.InvariantCulture)) {
+                        case "1": mode = "native"; break;
+                        case "1.5": mode = "quality"; break;
+                        case "1.7": mode = "balanced"; break;
+                        case "2": mode = "performance"; break;
+                        case "3": mode = "ultra_performance"; break;
+                    }
+                }
+            }
+            return Array.IndexOf(DlssModes, mode) < 0 ? "auto" : mode;
+        }
+
+        internal static string ResolveDlssMode(string mode, Size output)
+        {
+            // Auto is a resolution-based starting point. An explicit choice always wins.
+            if (mode != "auto") return mode;
+            return output.Height <= 1440 ? "quality" : output.Height < 2160 ? "balanced" : "performance";
+        }
+
+        internal static Size DlssScene(Size output, string mode)
+        {
+            double fraction;
+            switch (mode) {
+                case "native": return output;
+                case "quality": fraction = 2.0 / 3; break;
+                case "balanced": fraction = 0.58; break;
+                case "performance": fraction = 0.5; break;
+                case "ultra_performance": fraction = 1.0 / 3; break;
+                default: throw new ArgumentException("Unknown DLSS mode.", "mode");
+            }
+            return new Size(Math.Max(1, (int)Math.Round(output.Width * fraction, MidpointRounding.AwayFromZero)),
+                            Math.Max(1, (int)Math.Round(output.Height * fraction, MidpointRounding.AwayFromZero)));
+        }
+
         public static Size Calculate(int outputWidth, int outputHeight, string preset)
         {
             if (outputWidth <= 0 || outputHeight <= 0) throw new ArgumentOutOfRangeException("outputWidth");
@@ -227,7 +273,7 @@ namespace RyGT
             if (!String.IsNullOrEmpty(start.EnvironmentVariables["SHADGT_PATCH"]) ||
                 !String.IsNullOrEmpty(start.EnvironmentVariables["RYGT_PATCH"]))
                 throw new InvalidOperationException("Native resolution conflicts with another game patch or scene scale.");
-            if (pro1080 || size != new Size(1920, 1080)) {
+            if (pro1080 || size != new Size(1920, 1080) || (scene.HasValue && scene.Value != size)) {
                 var patches = NativePatches(gt7, size, pro1080, scene ?? size);
                 using (var exe = new BinaryReader(File.OpenRead(Path.Combine(root, gt7 ? "GT7.exe" : "GTSport.exe")))) {
                     foreach (var patch in patches) {

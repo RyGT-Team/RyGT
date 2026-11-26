@@ -71,7 +71,7 @@ namespace RyGT
             // Quality: the size the upscaler scales to. The game always draws 1920x1080, so a mode
             // picks the output (the picture times 1.5, 1.72, 2 or 3), which is then fitted to the
             // window; Auto scales straight to the window (ryty_upscale.h in the renderer).
-            var qualityKeys = new[] { "auto", "native", "quality", "balanced", "performance", "ultra_performance" };
+            var qualityKeys = RenderResolution.DlssModes;
             var qualityScales = new[] { 0.0, 1.0, 1.5, 1.0 / 0.58, 2.0, 3.0 };
             var quality = new DarkComboBox { Name = "UpscalingQuality", DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
             quality.Items.AddRange(new object[] { "Auto (window size)", "Native (anti-aliasing only)", "Quality", "Balanced", "Performance", "Ultra Performance" });
@@ -100,6 +100,7 @@ namespace RyGT
             upscaling.Controls.Add(detailRow);
             upscaling.Controls.Add(detailNote);
             bool detailKnown = RendererReads("RYGT_DLSS_TEMPORAL_MIP_EXTRA");
+            bool guestDlssKnown = RendererReads("RYGT_DLSS_OUTPUT_SIZE");
 
             // NVIDIA files: the Download button, the status of what is there, and Add from a folder.
             var dlssStatus = noteLabel();
@@ -160,19 +161,23 @@ namespace RyGT
             {
                 bool dlssOk = dlssReady(), dlssgOk = dlssgReady();
                 int m = method.SelectedIndex;
+                string autoLabel = m == 3 ? RenderResolution.DlssLabels[0] : "Auto (window size)";
+                if (!Equals(quality.Items[0], autoLabel)) quality.Items[0] = autoLabel;
                 string nativeLabel = m == 3 ? DlaaLabel : "Native (anti-aliasing only)";
                 if (!Equals(quality.Items[1], nativeLabel)) quality.Items[1] = nativeLabel;
                 methodNote.Text = m == 0 ? Native4kGuide
                                 : m == 1 ? "Any GPU. Light and simple."
                                 : m == 2 ? (fsr3Installed ? "Any GPU. Sharper than FSR 1." : "Needs amd_fidelityfx_vk.dll next to GT7.exe.")
                                 : dlssOk && quality.SelectedIndex == 1 ? DlaaGuide
-                                : dlssOk ? "For DLSS on RTX, use Game default render resolution and start with Auto (window size)."
+                                : dlssOk ? UseDlssGuide
                                          : "RTX cards only. Download the NVIDIA files below first.";
                 bool scaler = m == 2 || m == 3;
                 quality.Enabled = scaler;
                 int q = Math.Max(0, quality.SelectedIndex);
                 if (!scaler)
                     qualityNote.Text = m == 1 ? "FSR 1 always scales to the window size." : "Pick FSR 3.1 or DLSS to choose a quality.";
+                else if (m == 3)
+                    qualityNote.Text = DlssModeGuide(q);
                 else if (q == 0)
                     qualityNote.Text = "Auto targets the window size (1920 × 1080 → 3840 × 2160 in a 4K window).";
                 else
@@ -183,7 +188,9 @@ namespace RyGT
                 }
                 rcas.Visible = m == 1 || m == 2;
                 // FEAT-GT7-181 (the row on screen is the list's parent, as for the multiplier below).
-                bool detailShown = m == 3 && detailKnown && fg.SelectedIndex == 0 && has("sl.dlss.dll");
+                bool detailShown = m == 3 && detailKnown && fg.SelectedIndex == 0 && has("sl.dlss.dll") &&
+                    !(guestDlssKnown && has("ryGT_dlss.dll") && SavedProMode() == "off" &&
+                      !ReadSetting("GPU", "hdr_allowed", false) && Environment.GetEnvironmentVariable("RYGT_DLSS_GUEST_OUTPUT") != "0");
                 (detail.Parent ?? detailRow).Visible = detailShown;
                 detailNote.Visible = detailShown;
                 int d = Math.Max(0, detail.SelectedIndex);
@@ -265,8 +272,9 @@ namespace RyGT
                 lastMethod = method.SelectedIndex;
                 save();
                 refresh();
+                refreshSceneChoice();
             };
-            quality.SelectedIndexChanged += delegate { save(); refresh(); };
+            quality.SelectedIndexChanged += delegate { save(); refresh(); refreshSceneChoice(); };
             detail.SelectedIndexChanged += delegate
             {
                 try { WriteSetting("GPU", "dlss_texture_detail", detailKeys[Math.Max(0, detail.SelectedIndex)]); }

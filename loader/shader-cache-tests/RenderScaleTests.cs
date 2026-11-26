@@ -3,6 +3,21 @@ namespace RyGT { class RenderScaleTests {
 static void Check(bool value,string message){if(!value)throw new Exception(message);}
 static void SizeIs(int w,int h,string p,int sw,int sh){Check(RenderResolution.Calculate(w,h,p)==new Size(sw,sh),p+" size");}
 static void Main(){
+foreach (var output in new[] {new Size(1280,720), new Size(1920,1080), new Size(2560,1440), new Size(3440,1440), new Size(5120,1440), new Size(3840,2160)}) {
+    Check(RenderResolution.DlssScene(output, "native") == output, "DLAA keeps both axes");
+    var performance = RenderResolution.DlssScene(output, "performance");
+    Check(performance == new Size(output.Width / 2, output.Height / 2), "DLSS Performance at " + output);
+    var previous = output;
+    foreach (string quality in new[] {"quality","balanced","performance","ultra_performance"}) {
+        var scene = RenderResolution.DlssScene(output, quality);
+        Check(scene.Width < previous.Width && scene.Height < previous.Height &&
+              Math.Abs(scene.Width - (double)scene.Height * output.Width / output.Height) <= 2, "DLSS scale and aspect: " + quality);
+        previous = scene;
+    }
+}
+Check(RenderResolution.ResolveDlssMode("auto",new Size(2560,1440))=="quality" &&
+      RenderResolution.ResolveDlssMode("auto",new Size(3200,1800))=="balanced" &&
+      RenderResolution.ResolveDlssMode("auto",new Size(3840,2160))=="performance", "Automatic DLSS preset");
 Check(RenderResolution.NativeSize(RenderResolution.Auto, new Size(2560,1440)) == new Size(2560,1440), "match 1440p");
 Check(RenderResolution.NativeSize(RenderResolution.Auto, new Size(1280,800)) == new Size(1280,720), "fit 16:10 output");
 foreach (var window in new[] {new Size(2560,1080),new Size(3440,1440),new Size(5120,1440)})

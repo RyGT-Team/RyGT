@@ -13,8 +13,15 @@ namespace RyGT
         const string Native4kGuide = "For native 4K, choose PS4 Pro, 1080p TV, set upscaling to Off and choose 3840 × 2160 under Display → Render resolution.";
         const string CheckerboardWarning = "PS4 Pro, 4K TV uses the game's checkerboard reconstruction. DLSS and custom render resolutions are unavailable with checkerboard on.";
         const string DlaaLabel = "DLAA (native resolution)";
-        const string DlaaGuide = "DLAA applies NVIDIA anti-aliasing at the render resolution. Use base PS4 mode and matching 16:9 render and window sizes to test it.";
-        const string UseDlssGuide = "For DLSS, select PS4 (no Pro mode) and set Display → Render resolution to Game default.";
+        static string DlssModeGuide(int index)
+        {
+            if (index == 0) return "Auto selects Quality up to 1440p, Balanced below 2160p, and Performance at 2160p.";
+            if (index == 1) return DlaaGuide;
+            return RenderResolution.DlssLabels[index] + " renders the scene at about " +
+                new[] { "", "", "67%", "58%", "50%", "33%" }[index] + " per axis and reconstructs it before the HUD.";
+        }
+        const string DlaaGuide = "DLAA applies NVIDIA anti-aliasing at the full render resolution.";
+        const string UseDlssGuide = "Use base PS4, SDR and no frame generation for temporal DLSS. Choose the target under Display → Render resolution. Auto and Game default fit the window or display.";
 
         sealed class ProOption
         {
