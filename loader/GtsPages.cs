@@ -306,18 +306,12 @@ namespace RyGT
             };
             graphics.Controls.Add(addDlss);
             var dlssSharpen = AddDlssSharpening(graphics, dlss);
-            // DLSS and FSR both upscale, so one at a time; DLSS runs in Performance mode (#61).
+            // DLSS and FSR share the same reconstruction pass.
             fsr.CheckedChanged += delegate { if (fsr.Checked && dlss.Checked) dlss.Checked = false; };
             Action updateDlss = delegate
             {
                 if (!dlss.Checked) return;
                 if (fsr.Checked) fsr.Checked = false;
-                try
-                {
-                    if (ReadStringSetting("GPU", "dlss_quality", "performance") != "performance")
-                        WriteSetting("GPU", "dlss_quality", "performance");
-                }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the DLSS setting: " + e.Message); }
             };
             dlss.CheckedChanged += delegate { updateDlss(); };
             updateDlss();
@@ -465,8 +459,10 @@ namespace RyGT
                 new[] { "Supersampling - 150% (2880 x 1620)", "", "1.5" },
                 new[] { "Supersampling - 170% (3264 x 1836)", "", "1.7" },
                 new[] { "Supersampling - 200% (3840 x 2160)", "", "2" },
-                new[] { "Supersampling - 300% (5760 x 3240)", "", "3" } };
+                new[] { "Supersampling - 300% (5760 x 3240)", "", "3" },
+                new[] { "Auto (window size)", "", "0" } };
             var quality = combo();
+            quality.Name = "UpscalingQuality";
             foreach (var item in qualities) quality.Items.Add(item[0]);
             string savedRatio = ReadStringSetting("GPU", "upscale_ratio", "0");
             quality.SelectedIndex = sceneBox.Checked ? Math.Min(4, Math.Max(0, sceneCombo.SelectedIndex))
@@ -484,7 +480,18 @@ namespace RyGT
             qualityGuide.Name = "ImageQualityGuide";
             upscaling.Controls.Add(qualityGuide);
             Action updateQualityGuide = delegate {
-                qualityGuide.Text = upscaler.SelectedIndex == 4
+                bool nvidia = upscaler.SelectedIndex == 4;
+                string nativeLabel = nvidia ? DlaaLabel : qualities[5][0];
+                if (!Equals(quality.Items[5], nativeLabel)) quality.Items[5] = nativeLabel;
+                if (nvidia && !sceneBox.Checked) {
+                    string mode = quality.SelectedIndex == 5 ? "dlaa" : "performance";
+                    try {
+                        if (ReadStringSetting("GPU", "dlss_quality", "performance") != mode)
+                            WriteSetting("GPU", "dlss_quality", mode);
+                    } catch (Exception e) { MessageBox.Show(this, "Could not save the DLSS setting: " + e.Message); }
+                }
+                qualityGuide.Text = nvidia && quality.SelectedIndex == 5 ? DlaaGuide
+                    : nvidia
                     ? UseDlssGuide + " Start with Quality. Try Ultra Quality for more detail, or Balanced then Performance if you need more FPS."
                     : upscaler.SelectedIndex == 0 ? Native4kGuide +
                       (sceneBox.Checked ? " Set Quality / Supersampling to Native (100%) to turn off experimental scaling." : "")

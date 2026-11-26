@@ -12,6 +12,8 @@ namespace RyGT
         static readonly string[] ProModes = { "off", "4k", "1080p", "full", "custom" };
         const string Native4kGuide = "For native 4K, choose PS4 Pro, 1080p TV, set upscaling to Off and choose 3840 × 2160 under Display → Render resolution.";
         const string CheckerboardWarning = "PS4 Pro, 4K TV uses the game's checkerboard reconstruction. DLSS and custom render resolutions are unavailable with checkerboard on.";
+        const string DlaaLabel = "DLAA (native resolution)";
+        const string DlaaGuide = "DLAA applies NVIDIA anti-aliasing at the render resolution. Use base PS4 mode and matching 16:9 render and window sizes to test it.";
         const string UseDlssGuide = "For DLSS, select PS4 (no Pro mode) and set Display → Render resolution to Game default.";
 
         sealed class ProOption

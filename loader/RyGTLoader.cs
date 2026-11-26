@@ -3629,22 +3629,41 @@ namespace RyGT
             string mode = RenderResolution.SavedMode(gts, setting, output);
             string forced = env["RYGT_NATIVE_4K"];
             if (forced != null) mode = forced == "1" ? "3840x2160" : "game";
-            bool dlssPerformance = env["RYGT_DLSS_PERFORMANCE_INPUT"] == "1" && forced == null &&
+            Size? size = RenderResolution.NativeSize(mode, output);
+            bool dlss = Equals(setting("dlss_enabled"), true) && !Equals(setting("fsr_enabled"), true);
+            bool nativeQuality = gts ? Convert.ToString(setting("upscale_ratio"),
+                System.Globalization.CultureInfo.InvariantCulture) == "1" : Equals(setting("upscale_quality"), "native");
+            string renderer = Path.Combine(root, SwitchWalker.RendererFile);
+            bool dlaa = dlss && nativeQuality && (size.HasValue || mode == "game") &&
+                (!size.HasValue || !RenderResolution.IsWideOutput(size.Value)) &&
+                pro == "off" && forced == null && !Equals(setting("native_renderer"), false) &&
+                !Equals(setting("experimental_render_scale"), true) && !Equals(setting("framegen_enabled"), true) &&
+                !Equals(setting("dlssg_enabled"), true) && env["RYGT_NATIVE_DLAA"] != "0" &&
+                File.Exists(Path.Combine(root, "dlss", "ryGT_dlss.dll")) &&
+                App0Layout.FileContains(renderer, "RYGT_NATIVE_DLAA\0");
+            bool dlssPerformance = !dlaa && env["RYGT_DLSS_PERFORMANCE_INPUT"] == "1" && forced == null &&
                 mode == "3840x2160" && output == new Size(3840, 2160) && pro == "off" &&
-                Equals(setting("dlss_enabled"), true) && !Equals(setting("fsr_enabled"), true);
-            if (dlssPerformance) {
+                dlss;
+            if (!dlaa && env["RYGT_NATIVE_DLAA"] == "1") env.Remove("RYGT_NATIVE_DLAA");
+            if (dlssPerformance || dlaa) {
                 env["RYGT_DLSS_GUEST_OUTPUT"] = "1";
                 env["SHADGT_DLSS_STREAMLINE"] = "0";
                 env["SHADGT_DLSS_TEMPORAL"] = "1";
-                env["SHADGT_DLSS_QUALITY"] = env["SHADGT_UPSCALE_QUALITY"] = "performance";
-                env["SHADGT_UPSCALE_RATIO"] = "2";
+                env["SHADGT_DLSS_QUALITY"] = dlaa ? "dlaa" : "performance";
+                env["SHADGT_UPSCALE_QUALITY"] = dlaa ? "native" : "performance";
+                env["SHADGT_UPSCALE_RATIO"] = dlaa ? "1" : "2";
+                if (dlaa) {
+                    env["RYGT_NATIVE_DLAA"] = "1";
+                    var extent = size ?? new Size(1920, 1080);
+                    AppendSetupLog(root, game.TitleId, "DLAA requested: scene and guest output " +
+                        RenderResolution.ModeKey(extent) + ".");
+                }
             }
-            Size? size = RenderResolution.NativeSize(mode, output);
             bool wide = size.HasValue && RenderResolution.SupportsWideScene(size.Value);
             if (gts && !wide && env["SHADGT_WIDE_SCENE"] == null)
                 env["SHADGT_WIDE_SCENE"] = "0";
             if (!size.HasValue) return;
-            if (!dlssPerformance && (Equals(setting("fsr_enabled"), true) || Equals(setting("dlss_enabled"), true)))
+            if (!dlssPerformance && !dlaa && (Equals(setting("fsr_enabled"), true) || Equals(setting("dlss_enabled"), true)))
                 throw new InvalidOperationException("Turn off upscaling to choose a render resolution.");
             if (Equals(setting("native_renderer"), false) || Equals(setting("experimental_render_scale"), true))
                 throw new InvalidOperationException("Choose the Native renderer and turn off experimental viewport scaling for a fixed render resolution.");
@@ -3665,7 +3684,6 @@ namespace RyGT
                 }
             }
 
-            string renderer = Path.Combine(root, SwitchWalker.RendererFile);
             string patchVariable = "SHADGT_PATCH";
             if (!App0Layout.FileContains(renderer, patchVariable + "\0"))
             {

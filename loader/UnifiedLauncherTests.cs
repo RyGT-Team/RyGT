@@ -244,7 +244,16 @@ namespace RyGT
             method.SelectedItem = "NVIDIA DLSS";
             Check((string)method.SelectedItem == "NVIDIA DLSS" && guide.Text.Contains(gts ? "Start with Quality" : "Auto (window size)"),
                   "DLSS guidance matches this game's quality settings");
+            var quality = (System.Windows.Forms.ComboBox)graphics.Controls.Find("UpscalingQuality", true).Single();
+            quality.SelectedItem = "DLAA (native resolution)";
+            Check((string)quality.SelectedItem == "DLAA (native resolution)" && guide.Text.Contains("DLAA"),
+                  "NVIDIA native quality is DLAA");
+            using (var reopened = new LoaderForm(game.Kind, root)) {
+                var restored = (System.Windows.Forms.ComboBox)reopened.Controls.Find("UpscalingQuality", true).Single();
+                Check((string)restored.SelectedItem == "DLAA (native resolution)", "DLAA survives reopening");
+            }
             method.SelectedItem = "Off";
+            Check(!quality.Items.Contains("DLAA (native resolution)"), "DLAA is exclusive to NVIDIA");
             Check(guide.Text.Contains("native 4K"), "Upscaling Off explains native 4K");
         }
 
