@@ -43,7 +43,7 @@ std::atomic<int> gameRange{0};
 // the game wants for this car, in degrees.
 void SetGameRange(int range) {
     if (range >= 40 && range <= 1080 && gameRange.exchange(range) != range) {
-        APS5_LOG_OUT("Pad: game set the wheel range to %d degrees", range);
+        PAD_WHEEL_LOG("Pad: game set the wheel range to %d degrees", range);
     }
 }
 
@@ -116,8 +116,8 @@ WheelForces DecodeFanatec(int fallbackSpring) {
 }
 
 void LogFanatec(const std::uint8_t* report, const char* note) {
-    if (commandsLogged++ >= 300) return;
-    APS5_LOG_OUT("Pad: fanatec ffb [%02x] %02x %02x %02x %02x %02x %02x %02x%s", report[0], report[1], report[2], report[3], report[4],
+    if (commandsLogged++ >= PAD_WHEEL_LOG_LIMIT(300)) return;
+    PAD_WHEEL_LOG("Pad: fanatec ffb [%02x] %02x %02x %02x %02x %02x %02x %02x%s", report[0], report[1], report[2], report[3], report[4],
         report[5], report[6], report[7], note);
 }
 
@@ -145,9 +145,9 @@ void FanatecReport(const std::uint8_t* report, std::size_t length) {
         if (first == 0xf8 && c[1] == 0x81) SetGameRange(c[2] | (c[3] << 8));
     }
     static int updates = 0;
-    if (++updates % 2000 == 0) {
+    if (++updates % (Pad::WheelLog() ? 500 : 2000) == 0) {
         const WheelForces f = DecodeFanatec(0);
-        APS5_LOG_OUT("Pad: fanatec ffb: %d reports, constant %d spring %d damper %d friction %d", updates, f.constant, f.spring, f.damper,
+        PAD_WHEEL_LOG("Pad: fanatec ffb: %d reports, constant %d spring %d damper %d friction %d", updates, f.constant, f.spring, f.damper,
             f.friction);
     }
     if (WheelInput* input = wheel.load()) {
@@ -157,9 +157,12 @@ void FanatecReport(const std::uint8_t* report, std::size_t length) {
     }
 }
 
-void LogCommand(const std::uint8_t* command, const char* note) {
-    if (commandsLogged++ >= 200) return;
-    APS5_LOG_OUT("Pad: wheel ffb %02x %02x %02x %02x %02x %02x %02x %02x%s", command[0], command[1], command[2], command[3], command[4],
+// DIAG-RT-039: with RYGT_WHEEL_LOG an effect update that changes nothing but its level (sent
+// every frame while driving) is left out, so the log keeps every other command of a session.
+void LogCommand(const std::uint8_t* command, const char* note, bool news = true) {
+    if (Pad::WheelLog() && !news) return;
+    if (commandsLogged++ >= PAD_WHEEL_LOG_LIMIT(200)) return;
+    PAD_WHEEL_LOG("Pad: wheel ffb %02x %02x %02x %02x %02x %02x %02x %02x%s", command[0], command[1], command[2], command[3], command[4],
         command[5], command[6], command[7], note);
 }
 
@@ -331,9 +334,12 @@ void WheelReport(const std::uint8_t* report, std::size_t length) {
             LogCommand(c, " (not handled)");
             continue;
         }
+        bool news = false;
         for (int index = 0; index < 4; ++index) {
             if ((mask & (1 << index)) == 0) continue;
             ForceSlot& slot = forceSlots[index];
+            const bool wasPlaying = slot.playing;
+            const std::uint8_t oldType = slot.type;
             if (operation == 0x0 || operation == 0x1 || operation == 0xc) {
                 slot.type = c[1];
                 std::memcpy(slot.parameters, c + 2, 6);
@@ -341,8 +347,16 @@ void WheelReport(const std::uint8_t* report, std::size_t length) {
             if (operation == 0x1 || operation == 0x2) slot.playing = true;
             if (operation == 0x3) slot.playing = false;
             drivingCommand |= slot.playing;
+            news |= slot.playing != wasPlaying || slot.type != oldType;
         }
-        LogCommand(c, "");
+        LogCommand(c, "", news);
+    }
+    // DIAG-RT-039: now and then, the forces the G29 commands add up to (as for Fanatec below).
+    static int updates = 0;
+    if (++updates % (Pad::WheelLog() ? 500 : 2000) == 0) {
+        const WheelForces f = DecodeForces(0);
+        PAD_WHEEL_LOG("Pad: wheel ffb: %d reports, constant %d spring %d (centre %d, limit %d) damper %d friction %d, autocenter %d",
+            updates, f.constant, f.spring, f.springCenter, f.springLimit, f.damper, f.friction, autocenter ? 1 : 0);
     }
     if (WheelInput* input = wheel.load()) {
         input->SetForces(DecodeForces(FallbackSpring()), drivingCommand);
@@ -389,6 +403,16 @@ int SteeringForGame(int steering) {
     // stops at the car's lock.
     const long long scaled = static_cast<long long>(steering) * settings.rotation / range;
     return static_cast<int>(std::clamp<long long>(scaled, -32768, 32767));
+}
+
+int GameRange() { return gameRange.load(); }
+
+bool WheelLog() {
+    static const bool on = [] {
+        const char* text = std::getenv("RYGT_WHEEL_LOG");
+        return text != nullptr && text[0] != '\0' && text[0] != '0';
+    }();
+    return on;
 }
 
 bool WaitForWheel(int milliseconds) {
@@ -449,15 +473,18 @@ const WheelSettings& Wheel() {
                 }
             } else {
                 const auto utf8Path = path.u8string();
-                APS5_LOG_OUT("Pad: unknown wheel setting '%s' in %s", key.c_str(),
+                PAD_WHEEL_LOG("Pad: unknown wheel setting '%s' in %s", key.c_str(),
                     reinterpret_cast<const char*>(utf8Path.c_str()));
             }
         }
-        APS5_LOG_OUT("Pad: force feedback: gain %d%%, damping %d%%, detail %d%%%s", result.ffbGain, result.ffbDamping, result.ffbDetail,
+        PAD_WHEEL_LOG("Pad: force feedback: gain %d%%, damping %d%%, detail %d%%%s", result.ffbGain, result.ffbDamping, result.ffbDetail,
             result.ffbInvert ? ", reversed" : "");
         APS5_LOG_ERR("Pad: pedal deadzone %d%%", result.pedalDeadzone);
-        APS5_LOG_OUT("Pad: wheel settings: rotation %d, pedal max %u, angle in %s, present as %04x:%04x, capability 0x%x",
+        PAD_WHEEL_LOG("Pad: wheel settings: rotation %d, pedal max %u, angle in %s, present as %04x:%04x, capability 0x%x",
             result.rotation, result.pedalMax, result.angleRadians ? "radians" : "degrees", result.vendor, result.product, result.capability);
+        const auto settingsPath = path.u8string();
+        PAD_WHEEL_LOG("Pad: wheel settings: car lock %d, pad is wheel %d, from %s%s", result.carLock ? 1 : 0, result.padIsWheel ? 1 : 0,
+            reinterpret_cast<const char*>(settingsPath.c_str()), file.is_open() ? "" : " (not found, defaults)");
         return result;
     }();
     return settings;
