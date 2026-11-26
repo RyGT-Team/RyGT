@@ -39,6 +39,18 @@ body:
         - Build system
     validations:
       required: true
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game and update
+      description: RyGT runs GT Sport with update 1.69 and GT7 with update 1.71 only.
+      options:
+        - GT Sport (CUSA03220) update 1.69
+        - GT7 (CUSA24769) update 1.71
+        - Another update (not supported)
+        - Not about a game
+    validations:
+      required: true
   - type: input
     id: version
     attributes:

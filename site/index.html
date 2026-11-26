@@ -71,7 +71,7 @@ footer { max-width:860px; margin:0 auto; padding:24px; color:var(--dim); font-si
       <li>Extract the complete ryGT7 release to a writable folder, separate from your game folders.</li>
       <li>Run <code>RyGTLauncher.exe</code>.</li>
       <li>Select your decrypted <b>Gran Turismo 7 base game, CUSA24769</b>. Pick the folder containing <code>eboot.bin</code>, <code>sce_sys/param.sfo</code>, <code>sce_module</code>, and <code>contents</code> with <code>gt.idx</code> and the <code>gt*.vol</code> archives.</li>
-      <li>If your update is already merged into that folder, leave <b>Update</b> empty. Otherwise select the extracted update folder containing its own <code>eboot.bin</code> and <code>sce_sys/param.sfo</code>.</li>
+      <li>RyGT needs <b>update 1.71</b>. If update 1.71 is already merged into that folder, leave <b>Update</b> empty. Otherwise select the extracted update folder containing its own <code>eboot.bin</code> and <code>sce_sys/param.sfo</code>.</li>
       <li>Select your PS4 firmware's system modules and the fonts folder containing <code>font</code> and <code>font2</code>.</li>
       <li>Press <b>Set up</b>. Once it finishes, press <b>Play</b>, then choose <b>Online</b> or <b>Offline</b>.</li>
     </ol>
@@ -103,7 +103,7 @@ footer { max-width:860px; margin:0 auto; padding:24px; color:var(--dim); font-si
   <section id="docs">
     <h2>GT7 docs</h2>
     <details open><summary>What Set up checks</summary><p>It rejects other title IDs, malformed metadata, incomplete folders, and updates older than the selected game. It converts into a staging folder first, so a failed conversion keeps your existing executable. When it replaces <code>app0</code>, the old folder is kept as <code>app0.previous-&lt;timestamp&gt;</code>. Your dumps and saves are left alone.</p></details>
-    <details><summary>Verified game version</summary><p>The verified dump is CUSA24769 with <code>APP_VER</code> 01.00. Separate updates are tested, but later game updates have not been verified for conversion or gameplay.</p></details>
+    <details><summary>Required game version</summary><p>GT7 must be CUSA24769 with update 1.71, separate or merged into the game folder. The game's code is patched at 1.71's addresses, so other updates fail to start or crash, and Set up refuses them.</p></details>
     <details><summary>Offline mode patch</summary><p>Releases include the community Offline mode patch as <code>patches\CUSA24769.xml</code>, and Set up applies it automatically. Only its Offline mode group is used, never DLC unlocks or debug settings. If the file is added, changed or removed later, Play runs Set up again. The game writes its dealership catalog to <code>data\gt7offline</code>.</p></details>
     <details><summary>Settings and where files live</summary><p>Display, FSR/DLSS, shader compilation, logging, controller bindings, ports and wheel settings are in the launcher. Paths are stored in <code>CUSA24769.RyGT.ini</code>. Logs, shaders, converted output and saves stay in the launcher folder, each under the game's serial.</p></details>
     <details><summary>Updates</summary><p>The launcher checks GitLab for the newest release at start. If there is one, an Update button appears at the top right of the home page. It verifies the download, moves replaced files to <code>update\backup-&lt;old version&gt;</code>, and restarts. Your <code>user\</code> folder, shaders, converted game and .ini files are not touched. You can turn the check off or roll back in Settings &gt; Display.</p></details>

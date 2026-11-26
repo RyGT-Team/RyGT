@@ -1,7 +1,7 @@
 RyGT: Gran Turismo Sport and Gran Turismo 7 as native Windows programs
 {name} - github.com/RyGT-Team/RyGT
 
-RyGT ports Gran Turismo Sport (CUSA03220, update 1.69) and Gran Turismo 7 (CUSA24769) from
+RyGT ports Gran Turismo Sport (CUSA03220, update 1.69) and Gran Turismo 7 (CUSA24769, update 1.71) from
 PlayStation 4 to Windows. The games are not emulated: Set up converts each game's executable
 into GTSport.exe or GT7.exe, the game code runs on your CPU, and RyGT's libraries stand in for
 the PS4 system. Graphics go through the shadGT Vulkan renderer. One runtime, one renderer and
@@ -20,10 +20,10 @@ Quick start
   3. On its Game page, pick your folders:
        Game                    your decrypted base game folder (eboot.bin, sce_sys\param.sfo,
                                sce_module, ...): GT Sport CUSA03220 or GT7 CUSA24769
-       Update                  your decrypted update folder. GT Sport needs update 1.69. For
-                               GT7, leave it empty when the update is already merged into the
-                               game folder; a separate update overrides the base game file by
-                               file
+       Update                  your decrypted update folder. GT Sport needs update 1.69, GT7
+                               update 1.71. For GT7, leave it empty when update 1.71 is
+                               already merged into the game folder; a separate update overrides
+                               the base game file by file
        System modules          a folder with your PS4 firmware's decrypted modules (.sprx or
                                .prx, searched in subfolders too)
        Fonts                   a folder with your PS4 firmware's font and font2 folders
@@ -33,10 +33,11 @@ Quick start
   Do the same for the other game to play both from this folder. Keep the game and update
   folders in place after Set up: the games read them where they are.
 
-Verified dumps
+Required game updates
   GT Sport: CUSA03220 with update 1.69.
-  GT7: CUSA24769 whose metadata reports APP_VER 01.00. Other GT7 versions can be selected,
-  but the Offline mode patch is only applied to the verified 1.00 executable.
+  GT7: CUSA24769 with update 1.71 (separate, or merged into the game folder). RyGT patches
+  the game's code at 1.71's addresses, so other updates fail to start or crash; Set up
+  refuses them.
   Set up says "decrypt your game dump first" when a file in the dump is still encrypted.
 
 One folder for both games
