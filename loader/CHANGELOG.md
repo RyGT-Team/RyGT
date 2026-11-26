@@ -6,6 +6,13 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.24 - 2026-11-26
+
+* FIX-RT-037: GT7's Graphics page no longer has the "AMD graphics fix" box. The renderer's own AMD fixes made
+  it unneeded; with it on, shaders loaded slower and RX 6000 cards could crash loading a race. A saved
+  `amd_graphics_fix=true` is no longer read by the launcher or the runtime, so players who had it on get the
+  default (off). `RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC` stays on the Advanced page for tests.
+
 ## 0.3.22 - 2026-11-26
 
 * FEAT-RT-032: GT7's Display page gets a Game language setting (RyGT #113). The game follows the console's

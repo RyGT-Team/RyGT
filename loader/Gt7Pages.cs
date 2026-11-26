@@ -421,13 +421,10 @@ namespace RyGT
                 try { WriteSetting("GPU", "driver_cache_unlimited", cacheUnlimited.Checked); }
                 catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
             };
-            // FIX-220: AMD GPUs only, off by default: shaders that read vertex values are interpolated
-            // through KHR barycentrics (GPU.amd_graphics_fix, the game gets it as
-            // RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC). It fixes some AMD rendering glitches but makes shader
-            // loading slower; other GPUs ignore it.
-            AddOption(graphics, "AMD graphics fix (AMD GPUs only; slower shader loading)", "GPU", "amd_graphics_fix", false);
-            // A tester's RX 6000 series card crashed loading into races with it on (2026-10-30).
-            graphics.Controls.Add(Hint("Can crash RX 6000 series GPUs when loading into a race. If the game crashes when a race loads, turn this off."));
+            // FIX-RT-037: the "AMD graphics fix" box (FIX-220, GPU.amd_graphics_fix, passed as
+            // RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC) is gone. The renderer's own AMD fixes made it
+            // unneeded, and with it on, shaders loaded slower and RX 6000 cards could crash loading
+            // a race. A saved amd_graphics_fix=true is no longer read.
             // (FEAT-GTS-290: the shader pre-translation and compile pack boxes are on the Shaders page.)
             fpsLock.SelectedIndexChanged += delegate
             {
@@ -1255,10 +1252,9 @@ namespace RyGT
                     // renderer region, the CPU saw stale data and culled the whole rear-view mirror.
                     start.EnvironmentVariables["RYGT_NATIVE_INPLACE_FROM"] = "e000000000";
                     start.EnvironmentVariables["SHADGT_FPS_LOCK"] = RaceFpsLock(root).ToString();
-                    // Shader cache size and the AMD graphics fix from the Graphics page.
+                    // Shader cache size from the Graphics page. (FIX-RT-037: the AMD graphics fix is no
+                    // longer set from the old setting; the switch stays on the Advanced page for tests.)
                     start.EnvironmentVariables["RYGT_DRIVER_CACHE_MAX_MB"] = DriverCacheMaxMb(root).ToString();
-                    start.EnvironmentVariables["RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC"] =
-                        GpuSetting(root, "amd_graphics_fix") is bool && (bool)GpuSetting(root, "amd_graphics_fix") ? "1" : "0";
                     // PERF-GT7-111/117 from the Graphics page: each shader translation leaves a record
                     // (shaders\<serial>.manifest) and its code (shaders\<serial>.capture, this PC's only);
                     // at start, the ones the shader store lacks (after a renderer update) are translated
