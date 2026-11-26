@@ -100,6 +100,8 @@ namespace RyGT
             upscaling.Controls.Add(detailRow);
             upscaling.Controls.Add(detailNote);
             bool detailKnown = RendererReads("RYGT_DLSS_TEMPORAL_MIP_EXTRA");
+            // FEAT-RT-035 (RyGT #118): the DLSS preset, shown while NVIDIA DLSS is the method.
+            var presetRow = AddDlssPreset(upscaling);
 
             // NVIDIA files: the Download button, the status of what is there, and Add from a folder.
             var dlssStatus = noteLabel();
@@ -179,6 +181,7 @@ namespace RyGT
                                               : "Base PS4 renders at 1920 × 1080 and reconstructs to " + w + " × " + h + ".";
                 }
                 rcas.Visible = m == 1 || m == 2;
+                presetRow.Visible = m == 3; // FEAT-RT-035
                 // FEAT-GT7-181 (the row on screen is the list's parent, as for the multiplier below).
                 bool detailShown = m == 3 && detailKnown && fg.SelectedIndex == 0 && has("sl.dlss.dll");
                 (detail.Parent ?? detailRow).Visible = detailShown;
@@ -1233,6 +1236,9 @@ namespace RyGT
                     DlssDetailVariables(GpuSetting(root, "dlss_texture_detail") as string, out dlssBias, out dlssExtra);
                     if (dlssBias != null) start.EnvironmentVariables["RYGT_DLSS_TEMPORAL_MIP_BIAS"] = dlssBias;
                     if (dlssExtra != null) start.EnvironmentVariables["RYGT_DLSS_TEMPORAL_MIP_EXTRA"] = dlssExtra;
+                    // FEAT-RT-035: the DLSS preset from the Graphics page (nothing for Default).
+                    string dlssPreset = DlssPresetVariable(GpuSetting(root, "dlss_preset"));
+                    if (dlssPreset != null) start.EnvironmentVariables["SHARED_DLSS_PRESET"] = dlssPreset;
                     // FEAT-GTS-254: the Advanced page's switches and other variables last, so they win.
                     TrophyStore.ApplyEnvironment(root, start);
                     int customCount = ConfigureDisplayLaunch(start, root, GameInfo.GT7, new Settings(GameInfo.GT7.IniPath(root)).Env);

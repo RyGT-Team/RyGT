@@ -306,6 +306,12 @@ namespace RyGT
             };
             graphics.Controls.Add(addDlss);
             var dlssSharpen = AddDlssSharpening(graphics, dlss);
+            // FEAT-RT-035: the DLSS preset, enabled while DLSS is on.
+            var dlssPreset = AddDlssPreset(graphics);
+            Action refreshPreset = delegate { dlssPreset.Enabled = dlss.Checked && dlss.Enabled; };
+            dlss.CheckedChanged += delegate { refreshPreset(); };
+            dlss.EnabledChanged += delegate { refreshPreset(); };
+            refreshPreset();
             // DLSS and FSR both upscale, so one at a time; DLSS runs in Performance mode (#61).
             fsr.CheckedChanged += delegate { if (fsr.Checked && dlss.Checked) dlss.Checked = false; };
             Action updateDlss = delegate
@@ -853,6 +859,43 @@ namespace RyGT
         }
 
 
+        /// FEAT-RT-035 (RyGT #118): the DLSS preset (GPU.dlss_preset). Default leaves the choice to the
+        /// renderer: NVIDIA's preset for the quality through Streamline (K for Quality, Balanced and
+        /// DLAA, M for Performance, L for Ultra Performance), M in the ryGT_dlss path. The game gets a
+        /// chosen preset as SHARED_DLSS_PRESET (DlssPresetVariable). J to M are the presets NVIDIA's
+        /// DLSS 4 still supports; the others are deprecated or fall back to the default.
+        static readonly string[] DlssPresetKeys = { "default", "k", "l", "m", "j" };
+
+        SettingRow AddDlssPreset(TableLayoutPanel panel)
+        {
+            var combo = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 330, FlatStyle = FlatStyle.Flat, AccessibleName = "DLSS preset" };
+            combo.Items.AddRange(new object[]
+            {
+                "Default (recommended for the quality)",
+                "K: most detail",
+                "L: sharpest and steadiest, slowest",
+                "M: like L, closer to K's speed",
+                "J: like K, less ghosting, more flicker"
+            });
+            combo.SelectedIndex = Math.Max(0, Array.IndexOf(DlssPresetKeys, ReadStringSetting("GPU", "dlss_preset", "default")));
+            combo.SelectedIndexChanged += delegate
+            {
+                try { WriteSetting("GPU", "dlss_preset", DlssPresetKeys[Math.Max(0, combo.SelectedIndex)]); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            var row = new SettingRow("DLSS preset", combo);
+            panel.Controls.Add(row);
+            return row;
+        }
+
+        /// FEAT-RT-035: SHARED_DLSS_PRESET for the saved preset ("K", "L", "M" or "J"), or null for Default.
+        static string DlssPresetVariable(object setting)
+        {
+            string key = setting as string;
+            return key != null && key != "default" && Array.IndexOf(DlssPresetKeys, key) > 0 ? key.ToUpperInvariant() : null;
+        }
+
+
         /// DLSS sharpening (GPU.dlss_sharpening, 0 off): a slider row, enabled while DLSS is on.
         SettingRow AddDlssSharpening(TableLayoutPanel panel, CheckBox dlss)
         {
@@ -1210,6 +1253,11 @@ namespace RyGT
                     start.EnvironmentVariables["SHADGT_GAME"] = "gts";
                     start.EnvironmentVariables["RYGT_HDD_STREAMING"] = hddStreaming ? "1" : "0";
                     start.EnvironmentVariables["SHADGT_ANTI_LAG"] = antiLag ? "1" : "0"; // PERF-210
+                    // FEAT-RT-035: the DLSS preset from the Graphics page (nothing for Default).
+                    object presetSetting;
+                    ReadGpuSettings(root, GameInfo.GTSport).TryGetValue("dlss_preset", out presetSetting);
+                    string dlssPreset = DlssPresetVariable(presetSetting);
+                    if (dlssPreset != null) start.EnvironmentVariables["SHARED_DLSS_PRESET"] = dlssPreset;
                     // FIX-RT-028: shader objects are always off (the launcher's option is gone); the Advanced
                     // page, applied below, can still turn them on for a test.
                     start.EnvironmentVariables["SHADGT_SHADER_OBJECT"] = "0";
