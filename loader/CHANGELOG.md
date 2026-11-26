@@ -6,6 +6,13 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.21 - 2026-11-26
+
+* FIX-RT-034: GT7 needs update 1.71, and the launcher now says so. The Game page's field reads
+  "Update 1.71 (if separate)", the setup log names the update from the game's param.sfo
+  (`VERSION`; `APP_VER` stays 01.00 in a merged dump), and Set up stops with a clear message
+  for any other update instead of letting the game fail to start or crash.
+
 ## 0.3.20 - 2026-11-24
 
 * FEAT-RT-031: In Display, choose a monitor mode or enter a custom window size. GT Sport and

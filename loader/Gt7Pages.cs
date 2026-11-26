@@ -710,9 +710,14 @@ namespace RyGT
             string baseDir = settings.Game, updateDir = settings.Update;
             var layout = new GameLayout(baseDir, updateDir, root);
             settings.Save();
-            Log("Gran Turismo 7 (CUSA24769), version " + layout.Version);
-            if (layout.Version != "01.00")
-                Log("This update is not yet verified. The converter will use its executable without version-specific offsets.");
+            Log("Gran Turismo 7 (CUSA24769), update " + (layout.Update ?? "unknown") + " (APP_VER " + layout.Version + ")");
+            // FIX-RT-034: RyGT runs update 1.71 only; another update fails to start or crashes
+            // (code is patched at 1.71's addresses), so Set up stops here.
+            if (layout.Update == null)
+                Log("Warning: the game's param.sfo does not say which update it is. RyGT needs GT7 update 1.71; any other update will not run.");
+            else if (layout.Update != GameLayout.RequiredUpdate)
+                throw new Exception("RyGT needs GT7 update 1.71, but the selected game is update " + layout.Update.TrimStart('0') +
+                                    ". Pick a 1.71 update folder too, or a dump merged with update 1.71.");
             foreach (string name in new[] { "libSceVideoOut.prx", "libSceMbus.prx", "libSceTextToSpeech.prx" })
                 if (!File.Exists(Path.Combine(root, "libs", name)))
                     throw new Exception("The RyGT runtime is incomplete: libs\\" + name + " is missing. Extract the full release archive first.");

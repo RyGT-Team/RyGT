@@ -330,7 +330,7 @@ def assemble(commit, flavor, channel, suffix):
     else:
         (stage / 'README.txt').write_text(
             'RyGT Release CI package (ci)\n\nRun RyGTLauncher.exe to set up your own decrypted GT Sport CUSA03220 v1.69 and/or\n'
-            'Gran Turismo 7 CUSA24769 dumps; both games run from this one folder.\n'
+            'Gran Turismo 7 CUSA24769 v1.71 dumps; both games run from this one folder.\n'
             'Debug/Diagnostics is distributed separately as debug-ci.\n'
             'Game executable/data, firmware, saves, logs, caches and NVIDIA SDK DLLs are excluded.\n'
             'Supply required firmware modules and optional NVIDIA upscaler files yourself.\n'

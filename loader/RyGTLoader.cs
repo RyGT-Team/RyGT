@@ -2577,7 +2577,7 @@ namespace RyGT
             else
             {
                 boxes[1] = AddRow(files, "Base game (CUSA24769)", s.Game);
-                boxes[2] = AddRow(files, "Update (optional, if separate)", s.Update);
+                boxes[2] = AddRow(files, "Update 1.71 (if separate)", s.Update); // FIX-RT-034
                 boxes[3] = AddRow(files, "System modules", s.Modules);
                 boxes[4] = AddRow(files, "Fonts", s.Fonts);
             }
