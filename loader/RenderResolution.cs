@@ -174,7 +174,7 @@ namespace RyGT
             return rva.ToString("x") + ":" + opcode + Word(original) + ":" + opcode + Word(replacement);
         }
 
-        static List<string> NativePatches(bool gt7, Size size, bool pro1080, Size scene)
+        internal static List<string> NativePatches(bool gt7, Size size, bool pro1080, Size scene)
         {
             const int width = 1920, height = 1080;
             string extent = Word(width) + Word(height);
@@ -191,7 +191,7 @@ namespace RyGT
                     : "1c6dea0:8b0d8696f500:b93804000090",
                 Immediate(gt7 ? 0x17a7416 : 0x1c6dee5, gt7 ? "bb" : "41bf", width, size.Width),  // flip
                 Immediate(gt7 ? 0x17a741b : 0x1c6deeb, gt7 ? "41bf" : "41bc", height, size.Height),
-                Immediate(gt7 ? 0x17a7426 : 0x1c6dec9, gt7 ? "ba" : "c7055596f500", width, scene.Width), // scene
+                Immediate(gt7 ? 0x17a7426 : 0x1c6dec9, gt7 ? "ba" : "c7055596f500", width, scene.Width),
                 Immediate(gt7 ? 0x17a7421 : 0x1c6ded3, gt7 ? "b9" : "c7054f96f500", height, scene.Height),
                 (gt7 ? "27cadc6" : "1988ad3") + ":48b9" + extent + ":48b9" + target,
                 Immediate(gt7 ? 0x27caa03 : 0x19885dd, "b8", pool, pool * poolCount),
@@ -201,6 +201,12 @@ namespace RyGT
                         : Immediate(gt7 ? 0x27cabf9 : 0x198899f, "05", 2048, stride),
                 Immediate(gt7 ? 0x27cac03 : 0x19889b1, gt7 ? "c74604" : "c745b4", 2 * height, 2 * Math.Max(height, size.Height))
             };
+            if (scene != size) {
+                // The primary VideoOut attribute takes the scene globals even when the flip
+                // allocation has a different size. Override only its width and height arguments.
+                patches.Add((gt7 ? "17a7aa5:448b05647b1b04" : "1c6e23e:448b05e392f500") + ":41b8" + Word(size.Width) + "90");
+                patches.Add((gt7 ? "17a7aac:448b0d617b1b04" : "1c6e245:448b0de092f500") + ":41b9" + Word(size.Height) + "90");
+            }
             if (pro1080) {
                 // TV height chooses the scene path; the console flag independently selects
                 // the flip dimensions and pool. Keep the Pro flag and its 1080p effects.

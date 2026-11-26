@@ -42,6 +42,16 @@ Check(RenderResolution.SavedMode(false,get,new Size(5120,1440))=="5120x1440","le
 Check(RenderResolution.NativeSize("3840x2160", new Size(1280,720)) == new Size(3840,2160), "fixed scene independent of window");
 Check(!RenderResolution.NativeSize("game", new Size(1280,720)).HasValue, "keep console settings");
 SizeIs(1920,1080,"performance",960,540);SizeIs(1920,1080,"quality",1280,720);SizeIs(1920,1080,"ultra_performance",640,360);SizeIs(1920,1080,"balanced",1136,639);SizeIs(3840,2160,"quality",2560,1440);SizeIs(3840,2160,"dlaa",3840,2160);SizeIs(1280,720,"performance",640,360);
+foreach (bool gt7 in new[] { true, false }) {
+    var output = new Size(3840, 2160);
+    var native = RenderResolution.NativePatches(gt7, output, false, output);
+    var dlss = RenderResolution.NativePatches(gt7, output, false, new Size(1920, 1080));
+    string scanoutWidth = (gt7 ? "17a7aa5:448b05647b1b04" : "1c6e23e:448b05e392f500") + ":41b8000f000090";
+    string scanoutHeight = (gt7 ? "17a7aac:448b0d617b1b04" : "1c6e245:448b0de092f500") + ":41b97008000090";
+    Check(dlss.Contains(scanoutWidth) && dlss.Contains(scanoutHeight), "primary VideoOut must advertise 4K");
+    Check(!native.Contains(scanoutWidth) && !native.Contains(scanoutHeight), "native renderer retains its own scanout arguments");
+    Check(dlss.Contains((gt7 ? "27cadc6" : "1988ad3") + ":48b98007000038040000:48b98007000038040000"), "1080p scene allocation");
+}
 string dir=Path.Combine(Path.GetTempPath(),"RyGT-render-scale-"+Guid.NewGuid());Directory.CreateDirectory(dir);
 try { byte[] pe=new byte[512];Action<int,int> put=(at,n)=>Array.Copy(BitConverter.GetBytes(n),0,pe,at,4);put(0x3c,0x80);pe[0x86]=3;int table=0x98;int[] rvas={0x1988ad3,0x1988ab0,0x1988ab9};string[] signatures={"48b98007000038040000","8b0d72ea2301","8b0d6dea2301"};for(int i=0;i<3;i++){int at=table+i*40,raw=400+i*32;put(at+12,rvas[i]);put(at+16,signatures[i].Length/2);put(at+20,raw);for(int j=0;j<signatures[i].Length/2;j++)pe[raw+j]=Convert.ToByte(signatures[i].Substring(j*2,2),16);}File.WriteAllBytes(Path.Combine(dir,"GTSport.exe"),pe);
 var start=new ProcessStartInfo();start.EnvironmentVariables.Remove("SHADGT_PATCH");RenderResolution.ConfigureStart(start,dir,new Size(960,540));Check(start.EnvironmentVariables["SHADGT_PATCH"].Contains("48b9c00300001c020000"),"allocation patch");Check(start.EnvironmentVariables["SHADGT_SCENE_WIDTH"]=="960","scene env");Check(start.EnvironmentVariables["SHADGT_EXPERIMENTAL_SCENE_VIEWPORT"]=="1","viewport hook");
