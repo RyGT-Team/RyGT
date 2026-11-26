@@ -142,7 +142,8 @@ void Apply() {
                              ? -1
                              : Clamp(Setting(config, "driver_cache_gb"), 5, 0, 100) * 1024L;
     SetIfMissing("RYGT_DRIVER_CACHE_MAX_MB", std::to_string(cacheMb));
-    SetIfMissing("RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC", Setting(config, "amd_graphics_fix") == "true" ? "1" : "0");
+    // FIX-RT-037: the launcher's "AMD graphics fix" is gone; a saved amd_graphics_fix=true no longer
+    // sets RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC (the renderer's default, off, applies).
     SetIfMissing("RYGT_DLSSG_FRAMES", std::to_string(Clamp(Setting(config, "dlssg_frames"), 1, 1, 5)));
     const std::string quality = Setting(config, "upscale_quality");
     SetIfMissing("RYGT_UPSCALE_QUALITY", quality.empty() ? "auto" : quality);

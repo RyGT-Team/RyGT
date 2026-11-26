@@ -99,7 +99,7 @@ namespace RyGT
             // override them. The ones it sets only when an option is checked (RYGT_MANIFEST_*,
             // RYGT_COMPILE_PACK) stay listed.
             "RYGT_LOG_DIRECTORY", "RYGT_NATIVE_INPLACE_RANGES", "RYGT_NATIVE_INPLACE_FROM", "SHADGT_FPS_LOCK",
-            "RYGT_DRIVER_CACHE_MAX_MB", "RYGT_AMD_SINGLE_SAMPLE_BARYCENTRIC", "RYGT_DLSSG_FRAMES",
+            "RYGT_DRIVER_CACHE_MAX_MB", "RYGT_DLSSG_FRAMES",
             "RYGT_UPSCALE_QUALITY", "RYGT_TEXTURE_LOD_BIAS", "RYGT_SYSTEM_LANGUAGE",
             // The Graphics page's DLSS "Texture detail" (FEAT-GT7-181) sets these for Reduced and Off.
             "RYGT_DLSS_TEMPORAL_MIP_BIAS", "RYGT_DLSS_TEMPORAL_MIP_EXTRA",
