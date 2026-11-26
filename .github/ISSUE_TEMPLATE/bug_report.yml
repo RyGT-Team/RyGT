@@ -1,44 +1,21 @@
 name: Bug report
-description: Report a porting failure, crash or wrong behavior
+description: A crash, a graphics problem, a slowdown or anything else that goes wrong in GT Sport or GT7
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report an issue. Ryty aims to either do
-        exactly what is asked or fail with a clear error - please include the
-        exact error text.
-  - type: textarea
-    id: what-happened
-    attributes:
-      label: What happened?
-      description: Include the exact command line and the full console output (or the JSON report if you used --report).
-      placeholder: |
-        ryty --to-intel eboot.bin out.elf
-        FAIL: ...
-    validations:
-      required: true
-  - type: dropdown
-    id: target
-    attributes:
-      label: Target system
-      options:
-        - Linux
-        - Windows
-        - Both
-    validations:
-      required: true
-  - type: dropdown
-    id: component
-    attributes:
-      label: Component
-      options:
-        - CLI (ryty)
-        - GUI (ryty-gui)
-        - Ported game/runtime
-        - Build system
-    validations:
-      required: true
+        Thanks for taking the time to report this! The fields below are the things we always need
+        to look into a problem, so a complete report saves a round of questions.
+
+        **Before you reproduce it:** in the launcher, set the log level to **Info**. Then play until
+        the problem happens and attach that session's logs:
+        - GT7: `logs\CUSA24769\stdout.log` and `stderr.log`
+        - GT Sport: `logs\CUSA03220\stdout.log` and `stderr.log`
+
+        Each start of the game replaces those two files (older sessions are kept as
+        `stdout-<date>.log` and `stderr-<date>.log`), so attach them before starting the game again,
+        or attach the dated pair from the session that went wrong.
   - type: dropdown
     id: game
     attributes:
@@ -48,18 +25,86 @@ body:
         - GT Sport (CUSA03220) update 1.69
         - GT7 (CUSA24769) update 1.71
         - Another update (not supported)
-        - Not about a game
-    validations:
-      required: true
-  - type: input
-    id: version
-    attributes:
-      label: Ryty version or commit
-      placeholder: v1.0 or commit hash
+        - Not about a game (the launcher, setup, ...)
     validations:
       required: true
   - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead. For a crash, the exact message if one was shown.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      description: Where in the game (menu, mode, track, car, weather, camera), what you did just before, and whether it happens every time, sometimes, or once.
+      placeholder: |
+        1. Race at Autopolis with the Super Formula, rain on
+        2. After about two laps, ...
+        Happens every time / sometimes / once
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: RyGT build
+      description: The release or CI package you run, as named on its download (or in the folder name).
+      placeholder: rygt-2026-11-23, or RyGT-ci-c5a5c431
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux (Steam / Proton)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver version
+      description: If your PC has more than one GPU, name each one.
+      placeholder: NVIDIA RTX 4070, driver 566.36 / AMD RX 9070 XT, Adrenalin 26.11.2
+    validations:
+      required: true
+  - type: input
+    id: cpu-ram
+    attributes:
+      label: CPU and RAM
+      placeholder: Ryzen 7 5800X3D, 32 GB
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings you changed
+      description: Anything not at its default in the launcher, such as upscaling (FSR, DLSS), frame generation, PS4 Pro mode, render resolution, and switches on the Advanced page. "None" if you changed nothing.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Drag stdout.log and stderr.log from the session where it happened into this box (see the top of this form for where they are).
+    validations:
+      required: true
+  - type: checkboxes
+    id: log-checks
+    attributes:
+      label: Before you send
+      options:
+        - label: The log level was set to Info when this happened.
+          required: false
+        - label: The logs above are from the session where it happened.
+          required: true
+  - type: textarea
     id: extra
     attributes:
-      label: Additional context
-      description: OS, CPU (AMD/Intel - instruction lowering matters), GPU, anything else.
+      label: Screenshots, videos, anything else
+      description: Optional. A screenshot or a short clip helps a lot with graphics problems.
