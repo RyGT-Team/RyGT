@@ -69,7 +69,7 @@ body:
     id: gpu
     attributes:
       label: GPU and driver version
-      description: For a laptop with two GPUs, name both.
+      description: If your PC has more than one GPU, name each one.
       placeholder: NVIDIA RTX 4070, driver 566.36 / AMD RX 9070 XT, Adrenalin 26.11.2
     validations:
       required: true
