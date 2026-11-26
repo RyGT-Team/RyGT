@@ -48,8 +48,18 @@ namespace RyGT
                 if (Get(required) == null) throw new InvalidDataException("The selected game and update are missing " + required + ".");
             if (!Files.Keys.Any(p => p.StartsWith("contents\\", StringComparison.OrdinalIgnoreCase) && p.EndsWith(".vol", StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidDataException("The base game needs its contents folder with the gt*.vol archives.");
-            Version = Value(ReadSfo(Get("sce_sys\\param.sfo")), "APP_VER");
+            var sfo = ReadSfo(Get("sce_sys\\param.sfo"));
+            Version = Value(sfo, "APP_VER");
+            // FIX-RT-034: the update level is the sfo's VERSION (APP_VER stays 01.00 in a merged dump).
+            string update = Value(sfo, "VERSION");
+            Update = update != "unknown" && update.Trim().Length > 0 ? update.Trim() : null;
         }
+
+        /// FIX-RT-034: the only GT7 update RyGT runs; the runtime and renderer patch its code by address.
+        public const string RequiredUpdate = "01.71";
+
+        /// The update level from the game's param.sfo VERSION ("01.71"), or null when it has none.
+        public readonly string Update;
 
         static string Value(Dictionary<string, string> values, string key)
         { string value; return values.TryGetValue(key, out value) ? value : "unknown"; }

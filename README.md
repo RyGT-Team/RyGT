@@ -7,7 +7,7 @@
 
 **Gran Turismo Sport and Gran Turismo 7 running as native Windows programs.**
 
-RyGT ports Gran Turismo Sport (CUSA03220, update 1.69) and Gran Turismo 7 (CUSA24769) from
+RyGT ports Gran Turismo Sport (CUSA03220, update 1.69) and Gran Turismo 7 (CUSA24769, update 1.71) from
 PlayStation 4 to Windows. The games are not emulated: the converter turns each game's executable
 into `GTSport.exe` or `GT7.exe`, the game code runs directly on your CPU, and RyGT's libraries
 stand in for the PS4 system. Graphics go through
@@ -60,7 +60,7 @@ Get the latest build from [Releases](https://github.com/rygt-team/RyGTS/releases
 serves both games: the runtime libraries, the renderer, the converter, the launcher, GT Sport's
 settings, and GT7's files (its stub library `libs\libSceTextToSpeech.prx`, its Offline mode patch
 `patches\CUSA24769.xml`, and the online server in `server`). It contains **no game files**: you
-need your own decrypted dump of GT Sport CUSA03220 with update 1.69 and/or GT7 CUSA24769, and the
+need your own decrypted dump of GT Sport CUSA03220 with update 1.69 and/or GT7 CUSA24769 with update 1.71, and the
 system modules and fonts from your own PS4 firmware.
 
 Unzip it anywhere and run `RyGTLauncher.exe`. Pick the game at the top left of the launcher, then
@@ -93,7 +93,7 @@ shaders ready before you need them.
 ## How it fits together
 
 ```
-your dumps: GT Sport (CUSA03220, 1.69)        GT7 (CUSA24769)
+your dumps: GT Sport (CUSA03220, 1.69)        GT7 (CUSA24769, 1.71)
             eboot.bin + sce_module            eboot.bin + sce_module
         |                                     |
         |  RyGTLauncher.exe: unwrap the SELF, convert with ryty.exe --windows --ps4 --app0 app0/<serial>
@@ -183,7 +183,7 @@ yourself on Windows you need:
 | Visual Studio 2022 with "C++ Clang tools", the Vulkan SDK | only to rebuild the renderer (`libSceVideoOut.prx`) | [visualstudio.microsoft.com](https://visualstudio.microsoft.com), [vulkan.lunarg.com](https://vulkan.lunarg.com) |
 
 You also need everything a release needs to run: your own decrypted GT Sport dump (CUSA03220,
-update 1.69) and/or GT7 dump (CUSA24769), and your PS4 firmware's system modules and fonts.
+update 1.69) and/or GT7 dump (CUSA24769, update 1.71), and your PS4 firmware's system modules and fonts.
 
 ### 1. Get the code with its submodules
 
