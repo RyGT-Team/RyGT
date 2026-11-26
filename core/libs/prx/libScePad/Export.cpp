@@ -142,7 +142,13 @@ int APS5_VABI scePadDeviceClassParseData(int handle, const PadData* data, PadDev
  const auto& settings = Pad::Wheel();
  (void)data;
  const WheelState wheel = Pad::ReadWheel();
- const float position = static_cast<float>(wheel.steering) / 32768.0f;
+ // FIX-RT-038 (RyGT #130): the angle follows the steering as the game is given it, scaled to
+ // the car's lock like `wheel`. A real G29 rescales its axis to the range the game sets
+ // (f8 81), so the angle a PS4 derives from it reaches the full rotation at the car's lock.
+ // GT7 steers by this angle over the wheel's rotation: with the physical angle it needed the
+ // whole 900 degrees for a 559-degree car (1.6 times the turning). GT Sport reads `wheel`.
+ const int steering = Pad::SteeringForGame(wheel.steering);
+ const float position = static_cast<float>(steering) / 32768.0f;
  const float degrees = position * static_cast<float>(settings.rotation) * 0.5f;
  const auto pedal = [&settings](std::uint16_t value) {
   return static_cast<std::uint16_t>((static_cast<std::uint32_t>(value) * settings.pedalMax + 32767) / 65535);
@@ -150,7 +156,7 @@ int APS5_VABI scePadDeviceClassParseData(int handle, const PadData* data, PadDev
  class_data->deviceClass = PAD_DEVICE_CLASS_STEERING_WHEEL;
  class_data->dataValid = wheel.connected;
  class_data->classData.steeringWheel.angle = settings.angleRadians ? degrees * 0.017453292f : degrees;
- class_data->classData.steeringWheel.wheel = static_cast<std::uint16_t>(Pad::SteeringForGame(wheel.steering) + 32768);
+ class_data->classData.steeringWheel.wheel = static_cast<std::uint16_t>(steering + 32768);
  class_data->classData.steeringWheel.accelerator = pedal(wheel.throttle);
  class_data->classData.steeringWheel.brake = pedal(wheel.brake);
  class_data->classData.steeringWheel.clutch = pedal(wheel.clutch);
