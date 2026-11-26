@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -637,12 +638,23 @@ __declspec(dllexport) int VKAPI_CALL RygtDlss_EvaluateTemporal(VkCommandBuffer c
             return 1;
         }
         FeatureSlot& fresh = FreeSlot();
+        // FEAT-RT-035 (RyGT #118): the launcher's DLSS preset (SHARED_DLSS_PRESET: J, K, L or M);
+        // preset M when none is chosen.
+        static const unsigned preset = [] {
+            const char* chosen = std::getenv("SHARED_DLSS_PRESET");
+            switch (chosen && chosen[0] && !chosen[1] ? chosen[0] | 0x20 : 0) {
+            case 'j': return static_cast<unsigned>(NVSDK_NGX_DLSS_Hint_Render_Preset_J);
+            case 'k': return static_cast<unsigned>(NVSDK_NGX_DLSS_Hint_Render_Preset_K);
+            case 'l': return static_cast<unsigned>(NVSDK_NGX_DLSS_Hint_Render_Preset_L);
+            default: return static_cast<unsigned>(NVSDK_NGX_DLSS_Hint_Render_Preset_M);
+            }
+        }();
         for (const char* key : {NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA,
                                NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality,
                                NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced,
                                NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance,
                                NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance}) {
-            NVSDK_NGX_Parameter_SetUI(g_params, key, NVSDK_NGX_DLSS_Hint_Render_Preset_M);
+            NVSDK_NGX_Parameter_SetUI(g_params, key, preset);
         }
         NVSDK_NGX_DLSS_Create_Params create{};
         create.Feature.InWidth = input.width;

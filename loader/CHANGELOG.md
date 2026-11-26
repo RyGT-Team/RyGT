@@ -6,6 +6,13 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.23 - 2026-11-26
+
+* FEAT-RT-035: choose the DLSS preset (RyGT #118). GT7's Upscaling section shows "DLSS preset" while
+  NVIDIA DLSS is the method, and GT Sport's Graphics page has it under DLSS sharpening. Default keeps
+  today's choice (NVIDIA's preset for the quality through Streamline, M in ryGT_dlss); K, L, M and J
+  are passed to the game as `SHARED_DLSS_PRESET`.
+
 ## 0.3.22 - 2026-11-26
 
 * FEAT-RT-032: GT7's Display page gets a Game language setting (RyGT #113). The game follows the console's
