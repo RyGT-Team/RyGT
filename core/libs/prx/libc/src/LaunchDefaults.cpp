@@ -148,6 +148,9 @@ void Apply() {
     SetIfMissing("RYGT_UPSCALE_QUALITY", quality.empty() ? "auto" : quality);
     const std::string bias = Setting(config, "texture_lod_bias");
     SetIfMissing("RYGT_TEXTURE_LOD_BIAS", bias.empty() ? "0" : bias);
+    // FEAT-RT-032: the game language (General.system_language, a PS4 language id).
+    const std::string language = Setting(config, "system_language");
+    if (!language.empty()) SetIfMissing("RYGT_SYSTEM_LANGUAGE", language);
     std::fprintf(stderr, "[launch] started without the launcher: its settings applied from %s\n",
                  config.empty() ? "defaults" : configPath.substr(root.size()).c_str());
 }

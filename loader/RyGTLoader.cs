@@ -3722,6 +3722,7 @@ namespace RyGT
             AddOption(options, "Show an FPS counter", "General", "show_fps_counter", false);
             AddOption(options, "Show the splash screen while the game starts", "General", "show_splash", false);
             AddOption(options, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
+            if (!gts) AddLanguageSetting(options); // FEAT-RT-032
             if (gts)
             {
                 AddOption(options, "Fast flips (improves frame pacing)", "GPU", "fast_flips", false);
