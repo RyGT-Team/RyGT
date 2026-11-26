@@ -3,6 +3,44 @@ namespace RyGT { class RenderScaleTests {
 static void Check(bool value,string message){if(!value)throw new Exception(message);}
 static void SizeIs(int w,int h,string p,int sw,int sh){Check(RenderResolution.Calculate(w,h,p)==new Size(sw,sh),p+" size");}
 static void Main(){
+Check(RenderResolution.NativeSize(RenderResolution.Auto, new Size(2560,1440)) == new Size(2560,1440), "match 1440p");
+Check(RenderResolution.NativeSize(RenderResolution.Auto, new Size(1280,800)) == new Size(1280,720), "fit 16:10 output");
+foreach (var window in new[] {new Size(2560,1080),new Size(3440,1440),new Size(5120,1440)})
+    Check(RenderResolution.NativeSize(RenderResolution.Auto, window) == window, "Auto matches the ultrawide window");
+foreach (var window in new[] {new Size(7680,2160),new Size(3443,1440),new Size(10240,2880)}) {
+    var fit = RenderResolution.NativeSize(RenderResolution.Auto, window).Value;
+    Check(RenderResolution.SupportsWideScene(fit) && RenderResolution.WideOutputWarning(fit,window)==null, "Auto fits renderer limits at the output aspect");
+}
+foreach (int width in new[] { 3440, 5120 }) {
+    var wide = new Size(width, 1440);
+    Check(RenderResolution.NativeSize(RenderResolution.UltrawideWindow, wide) == wide, "native ultrawide " + width);
+}
+Check(!RenderResolution.NativeSize(RenderResolution.UltrawideWindow, new Size(2560,1440)).HasValue, "16:9 output");
+Check(!RenderResolution.NativeSize(RenderResolution.UltrawideWindow, new Size(7680,2160)).HasValue, "wide pool limit");
+Check(RenderResolution.NativeSize(RenderResolution.Auto, new Size(7680,4320)) == new Size(3840,2160), "UHD guest allocation limit");
+foreach (string mode in new[] {"2560x1440","3440x1440","5120x1440","3840x1080","4096x1152","3200x1000"}) {
+    var size = RenderResolution.NativeSize(mode,new Size(5120,1440));
+    Check(size.HasValue && RenderResolution.ModeKey(size.Value)==mode,"exact preset or custom "+mode);
+}
+foreach (string mode in new[] {"-1x1080","3441x1440","8192x1440","7680x2160","bad"}) {
+    Check(!RenderResolution.NativeSize(mode,new Size(5120,1440)).HasValue,"unsupported dimensions "+mode);
+}
+var settings = new System.Collections.Generic.Dictionary<string,object> {
+    {"native_resolution","game"},{"wide_scene",true},{"aspect_ratio","auto"},{"wide_scene_height","1080"} };
+Func<string,object> get = k => settings.ContainsKey(k) ? settings[k] : null;
+Check(RenderResolution.SavedMode(true,get,new Size(5120,1440))=="3840x1080","legacy GT Sport native 32:9 at 1080p");
+settings["native_resolution"]="display";
+Check(RenderResolution.SavedMode(true,get,new Size(5120,1440))=="3840x1080","legacy GT Sport wide height still takes precedence");
+Check(RenderResolution.SavedMode(false,get,new Size(5120,1440))==RenderResolution.Auto,"legacy Auto follows the output");
+settings["native_resolution"]=RenderResolution.Auto;
+Check(RenderResolution.SavedMode(true,get,new Size(5120,1440))==RenderResolution.Auto,"Auto stays dynamic after GT Sport writes its scene height");
+settings["native_resolution"]="game";
+settings["native_renderer"]=false;
+Check(RenderResolution.SavedMode(true,get,new Size(5120,1440))=="game","inactive legacy GT Sport wide profile");
+settings["native_resolution"]=RenderResolution.UltrawideWindow;
+Check(RenderResolution.SavedMode(false,get,new Size(5120,1440))=="5120x1440","legacy GT7 native 32:9");
+Check(RenderResolution.NativeSize("3840x2160", new Size(1280,720)) == new Size(3840,2160), "fixed scene independent of window");
+Check(!RenderResolution.NativeSize("game", new Size(1280,720)).HasValue, "keep console settings");
 SizeIs(1920,1080,"performance",960,540);SizeIs(1920,1080,"quality",1280,720);SizeIs(1920,1080,"ultra_performance",640,360);SizeIs(1920,1080,"balanced",1136,639);SizeIs(3840,2160,"quality",2560,1440);SizeIs(3840,2160,"dlaa",3840,2160);SizeIs(1280,720,"performance",640,360);
 string dir=Path.Combine(Path.GetTempPath(),"RyGT-render-scale-"+Guid.NewGuid());Directory.CreateDirectory(dir);
 try { byte[] pe=new byte[512];Action<int,int> put=(at,n)=>Array.Copy(BitConverter.GetBytes(n),0,pe,at,4);put(0x3c,0x80);pe[0x86]=3;int table=0x98;int[] rvas={0x1988ad3,0x1988ab0,0x1988ab9};string[] signatures={"48b98007000038040000","8b0d72ea2301","8b0d6dea2301"};for(int i=0;i<3;i++){int at=table+i*40,raw=400+i*32;put(at+12,rvas[i]);put(at+16,signatures[i].Length/2);put(at+20,raw);for(int j=0;j<signatures[i].Length/2;j++)pe[raw+j]=Convert.ToByte(signatures[i].Substring(j*2,2),16);}File.WriteAllBytes(Path.Combine(dir,"GTSport.exe"),pe);

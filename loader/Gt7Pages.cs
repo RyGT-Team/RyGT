@@ -24,17 +24,8 @@ namespace RyGT
         /// GT7's Display, Graphics, Controls, Online and Account pages, as ryGT7's launcher had them (the
         /// Game, Shaders, About and Advanced pages are both games'; RyGTLoader.cs). Returns what to run
         /// after Rowify (the Graphics rows it replaced are shown or hidden again).
-        Action BuildGt7Pages(TableLayoutPanel displayPage, TableLayoutPanel graphicsPage)
+        Action BuildGt7Pages(TableLayoutPanel graphicsPage, TableLayoutPanel pro, TableLayoutPanel upscaling, TableLayoutPanel frameGen)
         {
-            var display = Section(displayPage, "Screen");
-            AddScreenSettings(display);
-            AddOption(display, "Show an FPS counter", "General", "show_fps_counter", false);
-            AddOption(display, "Show the splash screen while the game starts", "General", "show_splash", false);
-            AddOption(display, "Show the game on Discord (Rich Presence)", "General", "discord_rpc_enabled", true);
-            AddMemorySetting(display);
-            AddVideoMemorySetting(display);
-            AddLanguageSetting(display);
-
             // ---- Graphics
             var graphics = Section(graphicsPage, "Rendering");
             // Sparks, tire smoke and other effects are always on; an older launcher could have
@@ -50,7 +41,6 @@ namespace RyGT
             // self-built ryGT_dlss.dll when Streamline's DLSS plugin is absent. Settings:
             // GPU.fsr_enabled, fsr3_enabled, dlss_enabled, rcas_enabled and upscale_quality (the game
             // gets the last as RYGT_UPSCALE_QUALITY).
-            var upscaling = Section(graphicsPage, "Upscaling");
             bool fsr3Installed = File.Exists(Path.Combine(root, "amd_fidelityfx_vk.dll"));
             string dlssDir = Path.Combine(root, "dlss");
             Func<string, DarkComboBox, Label, FlowLayoutPanel> comboRow = (text, combo, note) =>
@@ -65,18 +55,16 @@ namespace RyGT
                 AutoSize = true, MaximumSize = new Size(860, 0), BackColor = Color.Transparent, ForeColor = Dark.DimText,
                 Tag = "heading", Margin = new Padding(2, 2, 0, 4)
             };
-            var method = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
+            var method = new DarkComboBox { Name = "UpscalingMethod", DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
             method.Items.AddRange(new object[] { "Off", "AMD FSR 1", "AMD FSR 3.1", "NVIDIA DLSS" });
             var methodNote = noteLabel();
+            methodNote.Name = "ImageQualityGuide";
             upscaling.Controls.Add(comboRow("Method", method, methodNote));
             upscaling.Controls.Add(methodNote);
             // FEAT-GT7-180: shown when a configuration saved before has both NVIDIA DLSS and the PS4 Pro
             // 3200 x 1800 picture on (see the PS4 Pro mode section).
             var methodProWarning = noteLabel();
             methodProWarning.ForeColor = Dark.AccentText;
-            methodProWarning.Text = "NVIDIA DLSS and the PS4 Pro 3200 x 1800 picture are both on, and they do not go together. " +
-                                    "Pick another method here, or in PS4 Pro mode below pick \"PS4 (no Pro mode)\" or " +
-                                    "\"PS4 Pro, 1080p TV\", or untick the 3200 x 1800 box.";
             methodProWarning.Visible = false;
             upscaling.Controls.Add(methodProWarning);
 
@@ -128,7 +116,6 @@ namespace RyGT
             // newer, Windows' hardware-accelerated GPU scheduling on; 2x-6x, the multiplier is
             // GPU.dlssg_frames, which the game gets as RYGT_DLSSG_FRAMES). Settings:
             // GPU.framegen_enabled, dlssg_enabled.
-            var frameGen = Section(graphicsPage, "Frame generation");
             var fg = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, FlatStyle = FlatStyle.Flat };
             fg.Items.AddRange(new object[] { "Off", "AMD FSR 3.1 (any GPU)", "NVIDIA DLSS (RTX 40+)" });
             var fgNote = noteLabel();
@@ -146,212 +133,8 @@ namespace RyGT
             frameGen.Controls.Add(multRow);
             frameGen.Controls.Add(fgNote);
 
-            // FIX-GT7-141: HDR output (GPU.hdr_allowed, the renderer's setting) and the display the
-            // game is told of (GPU.hdr_display_peak_nits, which libSceSystemService reads when the
-            // game starts: GT7 tone maps its scene to that peak). 1000 unless set, as the library
-            // takes it; 0: the display as Windows describes it. The box goes from 0 to 300, the
-            // lowest peak offered.
-            var hdr = Section(graphicsPage, "HDR");
-            var hdrOutput = AddOption(hdr, "HDR output", "GPU", "hdr_allowed", false);
-            // A value written by hand may be a decimal or "<peak>,<full frame>,<min>": its peak is
-            // shown, and the file keeps it until the box is changed.
-            int hdrPeakStored = 1000;
-            {
-                object stored = GpuSetting(root, "hdr_display_peak_nits");
-                string text = stored == null || stored is bool ? null
-                    : Convert.ToString(stored, System.Globalization.CultureInfo.InvariantCulture).Split(',')[0];
-                double peak;
-                if (text != null && double.TryParse(text, System.Globalization.NumberStyles.Float,
-                                                    System.Globalization.CultureInfo.InvariantCulture, out peak) &&
-                    !double.IsNaN(peak) && !double.IsInfinity(peak))
-                {
-                    // As the library reads it: 0 asks Windows, under 100 is no peak (1000).
-                    hdrPeakStored = peak == 0 ? 0 : peak < 100 ? 1000 : (int)Math.Min(10000, Math.Round(peak));
-                }
-            }
-            if (hdrPeakStored > 0 && hdrPeakStored < 300) hdrPeakStored = 300;
-            var hdrPeak = new NumericUpDown { Minimum = 0, Maximum = 10000, DecimalPlaces = 0, Increment = 50, Width = 90,
-                                              TextAlign = HorizontalAlignment.Right, Value = hdrPeakStored,
-                                              Enabled = hdrOutput.Checked };
-            hdr.Controls.Add(new SettingRow("Display peak brightness (nits, 0 = from Windows)", hdrPeak));
-            hdr.Controls.Add(Hint("Turn on HDR in Windows first; these settings apply at the next game start. 1000 suits most HDR displays: " +
-                                  "set your display's real peak if bright areas lose their detail or look dull. 0 takes the peak Windows reports for the display."));
-            // The game's interface on an HDR output (GPU.hdr_paper_white_nits, the renderer's
-            // FIX-GT7-143: it replaces the 250 nits GT7 gives its menus and HUD). 250 is the game's
-            // own and writes nothing until the box is changed.
-            var hdrWhite = new NumericUpDown { Minimum = 50, Maximum = 1000, DecimalPlaces = 0, Increment = 10, Width = 90,
-                                               TextAlign = HorizontalAlignment.Right,
-                                               Value = Math.Max(50, Math.Min(1000, ReadIntSetting("GPU", "hdr_paper_white_nits", 250))),
-                                               Enabled = hdrOutput.Checked };
-            hdr.Controls.Add(new SettingRow("Interface brightness (nits)", hdrWhite));
-            hdr.Controls.Add(Hint("The white of the game's menus and race HUD on an HDR display. 250 is the game's own; lower it if they glare beside the scenery. Applies at the next game start."));
-            hdrWhite.ValueChanged += delegate
-            {
-                try { WriteSetting("GPU", "hdr_paper_white_nits", (int)hdrWhite.Value); }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-            };
-            hdrOutput.CheckedChanged += delegate { hdrPeak.Enabled = hdrWhite.Enabled = hdrOutput.Checked; };
-            int hdrPeakShown = hdrPeakStored;
-            hdrPeak.ValueChanged += delegate
-            {
-                int value = (int)hdrPeak.Value;
-                if (value > 0 && value < 300)
-                {
-                    // One step down from 300 is 0 (Windows' data); anything else under 300, typed
-                    // or stepped up from 0, is 300.
-                    hdrPeak.Value = hdrPeakShown == 300 && value == 300 - (int)hdrPeak.Increment ? 0 : 300;
-                    return;
-                }
-                if (value == hdrPeakShown) return;
-                try
-                {
-                    WriteSetting("GPU", "hdr_display_peak_nits", value);
-                    hdrPeakShown = value;
-                }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-            };
-
-            // NEO-GT7: GT7's own PS4 Pro mode and six of its settings. GPU.ps4_pro_mode: off (PS4), 4k (a Pro on
-            // a 4K TV), 1080p (a Pro on a 1080p TV), full (all six) or custom; the boxes are GPU.ps4_pro_checkerboard,
-            // ps4_pro_blur, ps4_pro_replays60, ps4_pro_replay_blur, ps4_pro_garage60 and ps4_pro_lod. A mode other
-            // than custom ticks the boxes as that console has them, and the boxes pick the mode back: as a console
-            // has them, that mode; any other choice, custom. Only the checkerboard box turns the Pro mode on in
-            // custom. StartGame turns them into RYGT_NEO, RYGT_NEO_TV and RYGT_NEO_EXTRAS (NEO-GT7-014 in the renderer).
-            var pro = Section(graphicsPage, "PS4 Pro mode");
-            var proKeys = new[] { "off", "4k", "1080p", "full", "custom" };
-            var proMode = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320, FlatStyle = FlatStyle.Flat };
-            proMode.Items.AddRange(new object[] { "PS4 (no Pro mode)", "PS4 Pro, 4K TV", "PS4 Pro, 1080p TV", "Full (everything on)", "Custom" });
-            proMode.SelectedIndex = Math.Max(0, Array.IndexOf(proKeys, ReadStringSetting("GPU", "ps4_pro_mode", "off")));
-            var proNote = noteLabel();
-            pro.Controls.Add(comboRow("Mode", proMode, proNote));
-            pro.Controls.Add(proNote);
-            // FEAT-GT7-180: NVIDIA DLSS and the 3200 x 1800 checkerboard picture are not offered together. The
-            // game rebuilds that picture from several frames itself, and DLSS on top cost about 6 ms of GPU time
-            // a frame on an RTX 4070 (the only GPU it was measured on). Picking one while the other is on is
-            // refused with a message; a configuration saved before with both gets a warning in both sections.
-            // The rule is this page's: a RYGT_NEO set from the Advanced page's own variables is not checked.
-            var proDlssWarning = noteLabel();
-            proDlssWarning.ForeColor = Dark.AccentText;
-            proDlssWarning.Text = "The 3200 x 1800 picture and NVIDIA DLSS are both on, and they do not go together. " +
-                                  "Untick the 3200 x 1800 box, or pick another upscaling method above.";
-            proDlssWarning.Visible = false;
-            pro.Controls.Add(proDlssWarning);
-            int lastPro = proMode.SelectedIndex;
-            bool proReverting = false;
-            var proBoxKeys = new[] { "ps4_pro_checkerboard", "ps4_pro_blur", "ps4_pro_replays60", "ps4_pro_replay_blur",
-                                     "ps4_pro_garage60", "ps4_pro_lod" };
-            var proBoxTexts = new[]
-            {
-                "3200 x 1800 with the game's own checkerboard and its 4K interface",
-                "Motion blur in races",
-                "Replays and photo mode at 60 fps instead of 30",
-                "Extra blur in replays and photo mode",
-                "High-quality garage scenes at 60 fps instead of 30",
-                "Level of detail kept 1.3 times farther (buildings, car geometry and decals)",
-            };
-            var proBoxes = new CheckBox[proBoxKeys.Length];
-            for (int i = 0; i < proBoxKeys.Length; i++) proBoxes[i] = AddOption(pro, proBoxTexts[i], "GPU", proBoxKeys[i], false);
-            pro.Controls.Add(Hint("The game's own PS4 Pro settings. A mode ticks the boxes as that console has them; change a box to make " +
-                                  "your own (Custom). Every box costs GPU time, the checkerboard most. Applies at the next game start."));
-            // Checked on an NVIDIA RTX 4070 only, where the game alone used about 5 GB of video memory in a race with
-            // everything on. With the checkerboard a race can drop below 30 fps. Without the checkerboard, the boxes
-            // run in the PS4 mode, except all five together: that is the PS4 Pro 1080p TV mode.
-            bool proApplying = false;
-            // FEAT-GT7-180: GPU.dlss_enabled can be saved on while the list shows another method (the NVIDIA files
-            // are missing). Turning the 3200 x 1800 picture on then switches that setting off, or adding the
-            // files later would bring both on without a word.
-            Action proDropUnshownDlss = delegate
-            {
-                if (method.SelectedIndex == 3 || !ReadSetting("GPU", "dlss_enabled", false)) return;
-                try { WriteSetting("GPU", "dlss_enabled", false); }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-            };
-            Action proDlssRefresh = delegate
-            {
-                bool both = proBoxes[0].Checked && method.SelectedIndex == 3;
-                methodProWarning.Visible = both;
-                proDlssWarning.Visible = both;
-            };
-            Action proRefresh = delegate
-            {
-                proDlssRefresh();
-                int p = proMode.SelectedIndex;
-                proNote.Text = p == 0 ? "As a PS4: native 1920 x 1080, no box ticked."
-                             : p == 1 ? "As a PS4 Pro on a 4K TV: the checkerboard picture, the other settings off."
-                             : p == 2 ? "As a PS4 Pro on a 1080p TV (PS4 Pro mode on): native 1920 x 1080, the five other settings on."
-                             : p == 3 ? "Everything on: the 4K TV picture with the 1080p TV's settings. The heaviest."
-                             : proBoxes[0].Checked ? "Your own choice of the boxes below, in the game's PS4 Pro mode (checkerboard)."
-                                                   : "Your own choice of the boxes below, in the PS4 mode (no checkerboard).";
-            };
-            // The boxes a mode ticks: 4K TV the checkerboard alone, 1080p TV the five others, Full all six.
-            Action proApply = delegate
-            {
-                int p = proMode.SelectedIndex;
-                if (p == 4) return;
-                proApplying = true;
-                for (int i = 0; i < proBoxes.Length; i++)
-                    proBoxes[i].Checked = p == 3 || (p == 1 && i == 0) || (p == 2 && i != 0);
-                proApplying = false;
-            };
-            // The mode the boxes make: none PS4, the checkerboard alone 4K TV, the five others 1080p TV, all six
-            // Full, anything else Custom (keeping the boxes as they are).
-            Func<int> proModeOfBoxes = delegate
-            {
-                int others = 0;
-                for (int i = 1; i < proBoxes.Length; i++) if (proBoxes[i].Checked) others++;
-                bool checkerboard = proBoxes[0].Checked;
-                if (!checkerboard && others == 0) return 0;
-                if (checkerboard && others == 0) return 1;
-                if (!checkerboard && others == proBoxes.Length - 1) return 2;
-                if (checkerboard && others == proBoxes.Length - 1) return 3;
-                return 4;
-            };
-            foreach (var box in proBoxes)
-            {
-                var changed = box;
-                box.CheckedChanged += delegate
-                {
-                    if (proApplying) return;
-                    if (changed == proBoxes[0] && changed.Checked && method.SelectedIndex == 3)
-                    {
-                        // FEAT-GT7-180: not with NVIDIA DLSS. The box is unticked before the message (its own
-                        // handler has already saved it ticked), and the mode stays as it is: Custom stays Custom.
-                        proApplying = true;
-                        changed.Checked = false;
-                        proApplying = false;
-                        MessageBox.Show(this, "The 3200 x 1800 picture cannot be used with NVIDIA DLSS: the game already rebuilds " +
-                                              "that picture itself. Pick another upscaling method first.");
-                        return;
-                    }
-                    if (changed == proBoxes[0] && changed.Checked) proDropUnshownDlss();
-                    int boxesMode = proModeOfBoxes();
-                    if (boxesMode != proMode.SelectedIndex) proMode.SelectedIndex = boxesMode;
-                    else proRefresh();
-                };
-            }
-            proMode.SelectedIndexChanged += delegate
-            {
-                int picked = proMode.SelectedIndex;
-                // FEAT-GT7-180: the modes with the checkerboard (4K TV, Full) are refused while NVIDIA DLSS is the
-                // upscaling method. Custom keeps the boxes as they are, and the box has its own check.
-                if (!proReverting && (picked == 1 || picked == 3) && method.SelectedIndex == 3 && !proBoxes[0].Checked)
-                {
-                    MessageBox.Show(this, "This mode draws the 3200 x 1800 picture, which cannot be used with NVIDIA DLSS: the game " +
-                                          "already rebuilds that picture itself. Pick another upscaling method first.");
-                    proReverting = true;
-                    proMode.SelectedIndex = lastPro;
-                    proReverting = false;
-                    return;
-                }
-                lastPro = picked;
-                if (picked == 1 || picked == 3) proDropUnshownDlss();
-                try { WriteSetting("GPU", "ps4_pro_mode", proKeys[Math.Max(0, proMode.SelectedIndex)]); }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-                proApply();
-                proRefresh();
-            };
-            proApply();
-            proRefresh();
+            Action proDlssRefresh;
+            var checkerboard = AddProSettings(pro, () => method.SelectedIndex == 3, methodProWarning, out proDlssRefresh);
 
             bool loading = true;
             Func<string, bool> has = name => File.Exists(Path.Combine(dlssDir, name));
@@ -377,10 +160,10 @@ namespace RyGT
             {
                 bool dlssOk = dlssReady(), dlssgOk = dlssgReady();
                 int m = method.SelectedIndex;
-                methodNote.Text = m == 0 ? "The picture is stretched to the window as it is."
+                methodNote.Text = m == 0 ? Native4kGuide
                                 : m == 1 ? "Any GPU. Light and simple."
                                 : m == 2 ? (fsr3Installed ? "Any GPU. Sharper than FSR 1." : "Needs amd_fidelityfx_vk.dll next to GT7.exe.")
-                                : dlssOk ? "RTX cards only. The best image."
+                                : dlssOk ? "For DLSS on RTX, use Game default render resolution and start with Auto (window size)."
                                          : "RTX cards only. Download the NVIDIA files below first.";
                 bool scaler = m == 2 || m == 3;
                 quality.Enabled = scaler;
@@ -388,12 +171,12 @@ namespace RyGT
                 if (!scaler)
                     qualityNote.Text = m == 1 ? "FSR 1 always scales to the window size." : "Pick FSR 3.1 or DLSS to choose a quality.";
                 else if (q == 0)
-                    qualityNote.Text = "1920 x 1080, scaled to the window size (only when the window is bigger).";
+                    qualityNote.Text = "Auto targets the window size (1920 × 1080 → 3840 × 2160 in a 4K window).";
                 else
                 {
                     int w = (int)Math.Round(1920 * qualityScales[q]), h = (int)Math.Round(1080 * qualityScales[q]);
                     qualityNote.Text = q == 1 ? "1920 x 1080 at its own size, anti-aliased, then fitted to the window."
-                                              : "1920 x 1080 -> " + w + " x " + h + ", then fitted to the window. Higher is sharper and costs more GPU.";
+                                              : "Base PS4 renders at 1920 × 1080 and reconstructs to " + w + " × " + h + ".";
                 }
                 rcas.Visible = m == 1 || m == 2;
                 // FEAT-GT7-181 (the row on screen is the list's parent, as for the multiplier below).
@@ -470,11 +253,9 @@ namespace RyGT
                 }
                 // FEAT-GT7-180: not with the PS4 Pro 3200 x 1800 picture (unless a saved configuration already
                 // has both: lastMethod is then DLSS, and the warnings say so).
-                if (!loading && method.SelectedIndex == 3 && lastMethod != 3 && proBoxes[0].Checked)
+                if (!loading && method.SelectedIndex == 3 && lastMethod != 3 && checkerboard.Checked)
                 {
-                    MessageBox.Show(this, "NVIDIA DLSS cannot be used with the PS4 Pro 3200 x 1800 picture: the game already rebuilds " +
-                                          "that picture itself. In PS4 Pro mode, pick \"PS4 (no Pro mode)\" or \"PS4 Pro, 1080p TV\" first, " +
-                                          "or untick the 3200 x 1800 box.");
+                    MessageBox.Show(this, CheckerboardWarning + " " + UseDlssGuide, "PS4 Pro and DLSS");
                     method.SelectedIndex = Math.Max(0, lastMethod);
                     return;
                 }
@@ -713,6 +494,72 @@ namespace RyGT
         }
 
 
+        void AddGt7HdrLevels(TableLayoutPanel hdr, CheckBox hdrOutput)
+        {
+            // FIX-GT7-141: HDR output (GPU.hdr_allowed, the renderer's setting) and the display the
+            // game is told of (GPU.hdr_display_peak_nits, which libSceSystemService reads when the
+            // game starts: GT7 tone maps its scene to that peak). 1000 unless set, as the library
+            // takes it; 0: the display as Windows describes it. The box goes from 0 to 300, the
+            // lowest peak offered.
+            // A value written by hand may be a decimal or "<peak>,<full frame>,<min>": its peak is
+            // shown, and the file keeps it until the box is changed.
+            int hdrPeakStored = 1000;
+            {
+                object stored = GpuSetting(root, "hdr_display_peak_nits");
+                string text = stored == null || stored is bool ? null
+                    : Convert.ToString(stored, System.Globalization.CultureInfo.InvariantCulture).Split(',')[0];
+                double peak;
+                if (text != null && double.TryParse(text, System.Globalization.NumberStyles.Float,
+                                                    System.Globalization.CultureInfo.InvariantCulture, out peak) &&
+                    !double.IsNaN(peak) && !double.IsInfinity(peak))
+                {
+                    // As the library reads it: 0 asks Windows, under 100 is no peak (1000).
+                    hdrPeakStored = peak == 0 ? 0 : peak < 100 ? 1000 : (int)Math.Min(10000, Math.Round(peak));
+                }
+            }
+            if (hdrPeakStored > 0 && hdrPeakStored < 300) hdrPeakStored = 300;
+            var hdrPeak = new NumericUpDown { Minimum = 0, Maximum = 10000, DecimalPlaces = 0, Increment = 50, Width = 90,
+                                              TextAlign = HorizontalAlignment.Right, Value = hdrPeakStored,
+                                              Enabled = hdrOutput.Checked };
+            hdr.Controls.Add(new SettingRow("Display peak brightness (nits, 0 = from Windows)", hdrPeak));
+            hdr.Controls.Add(Hint("Turn on HDR in Windows first; these settings apply at the next game start. 1000 suits most HDR displays: " +
+                                  "set your display's real peak if bright areas lose their detail or look dull. 0 takes the peak Windows reports for the display."));
+            // The game's interface on an HDR output (GPU.hdr_paper_white_nits, the renderer's
+            // FIX-GT7-143: it replaces the 250 nits GT7 gives its menus and HUD). 250 is the game's
+            // own and writes nothing until the box is changed.
+            var hdrWhite = new NumericUpDown { Minimum = 50, Maximum = 1000, DecimalPlaces = 0, Increment = 10, Width = 90,
+                                               TextAlign = HorizontalAlignment.Right,
+                                               Value = Math.Max(50, Math.Min(1000, ReadIntSetting("GPU", "hdr_paper_white_nits", 250))),
+                                               Enabled = hdrOutput.Checked };
+            hdr.Controls.Add(new SettingRow("Interface brightness (nits)", hdrWhite));
+            hdr.Controls.Add(Hint("The white of the game's menus and race HUD on an HDR display. 250 is the game's own; lower it if they glare beside the scenery. Applies at the next game start."));
+            hdrWhite.ValueChanged += delegate
+            {
+                try { WriteSetting("GPU", "hdr_paper_white_nits", (int)hdrWhite.Value); }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+            hdrOutput.CheckedChanged += delegate { hdrPeak.Enabled = hdrWhite.Enabled = hdrOutput.Checked; };
+            int hdrPeakShown = hdrPeakStored;
+            hdrPeak.ValueChanged += delegate
+            {
+                int value = (int)hdrPeak.Value;
+                if (value > 0 && value < 300)
+                {
+                    // One step down from 300 is 0 (Windows' data); anything else under 300, typed
+                    // or stepped up from 0, is 300.
+                    hdrPeak.Value = hdrPeakShown == 300 && value == 300 - (int)hdrPeak.Increment ? 0 : 300;
+                    return;
+                }
+                if (value == hdrPeakShown) return;
+                try
+                {
+                    WriteSetting("GPU", "hdr_display_peak_nits", value);
+                    hdrPeakShown = value;
+                }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+            };
+        }
+
         // Video memory (GPU.vram_budget_mb): how much of the graphics card's memory the renderer
         // plans for. Auto (0) uses the driver's budget, as before. A smaller value makes the
         // renderer free cached textures and render targets it hasn't used lately sooner, leaving
@@ -787,7 +634,8 @@ namespace RyGT
         /// A GPU section setting from the game's settings file, or null.
         static object GpuSetting(string root, string key)
         {
-            return GameSetting(root, "GPU", key);
+            object value;
+            return ReadGpuSettings(root, GameInfo.GT7).TryGetValue(key, out value) ? value : null;
         }
 
         /// A setting from a section of the game's settings file, or null.
@@ -908,9 +756,14 @@ namespace RyGT
             string baseDir = settings.Game, updateDir = settings.Update;
             var layout = new GameLayout(baseDir, updateDir, root);
             settings.Save();
-            Log("Gran Turismo 7 (CUSA24769), version " + layout.Version);
-            if (layout.Version != "01.00")
-                Log("This update is not yet verified. The converter will use its executable without version-specific offsets.");
+            Log("Gran Turismo 7 (CUSA24769), update " + (layout.Update ?? "unknown") + " (APP_VER " + layout.Version + ")");
+            // FIX-RT-034: RyGT runs update 1.71 only; another update fails to start or crashes
+            // (code is patched at 1.71's addresses), so Set up stops here.
+            if (layout.Update == null)
+                Log("Warning: the game's param.sfo does not say which update it is. RyGT needs GT7 update 1.71; any other update will not run.");
+            else if (layout.Update != GameLayout.RequiredUpdate)
+                throw new Exception("RyGT needs GT7 update 1.71, but the selected game is update " + layout.Update.TrimStart('0') +
+                                    ". Pick a 1.71 update folder too, or a dump merged with update 1.71.");
             foreach (string name in new[] { "libSceVideoOut.prx", "libSceMbus.prx", "libSceTextToSpeech.prx" })
                 if (!File.Exists(Path.Combine(root, "libs", name)))
                     throw new Exception("The RyGT runtime is incomplete: libs\\" + name + " is missing. Extract the full release archive first.");
@@ -1300,6 +1153,8 @@ namespace RyGT
             if (IsGameRunning()) { RefreshState(); return; }
             MigrateGt7Serial(); // GAME-004
             if (!File.Exists(Exe)) { MessageBox.Show(this, "Press Set up first."); return; }
+            try { ResolveVulkanDevice(); }
+            catch (Exception e) { MessageBox.Show(this, e.Message); return; }
             // Without its data index GT7 closes right after the splash screen.
             string dataIndex = RuntimeReadsGameFolders() ? GameFile("contents\\gt.idx") : null;
             string linkedIndex = Path.Combine(App0Layout.Top(root, info.TitleId), "contents", "gt.idx");
@@ -1431,38 +1286,9 @@ namespace RyGT
                     DlssDetailVariables(GpuSetting(root, "dlss_texture_detail") as string, out dlssBias, out dlssExtra);
                     if (dlssBias != null) start.EnvironmentVariables["RYGT_DLSS_TEMPORAL_MIP_BIAS"] = dlssBias;
                     if (dlssExtra != null) start.EnvironmentVariables["RYGT_DLSS_TEMPORAL_MIP_EXTRA"] = dlssExtra;
-                    // PS4 Pro mode from the Graphics page (NEO-GT7). PS4 (off) sets nothing, so a launcher
-                    // script's own values stay. The other modes set or remove all three variables themselves:
-                    // RYGT_NEO=1 with the checkerboard (4K TV, Full, Custom with its box), plus RYGT_NEO_TV=1080
-                    // for the 1080p TV; RYGT_NEO_EXTRAS lists the five other settings when they differ from what
-                    // the game picks by itself (none in the PS4 and 4K TV presets, all five in the 1080p TV one).
-                    // The modes other than custom are read as the console has them, not from the boxes.
-                    string proSetting = GpuSetting(root, "ps4_pro_mode") as string ?? "off";
-                    if (proSetting == "4k" || proSetting == "1080p" || proSetting == "full" || proSetting == "custom")
-                    {
-                        Func<string, bool> proBox = key => { object on = GpuSetting(root, key); return on is bool && (bool)on; };
-                        bool custom = proSetting == "custom";
-                        bool tv1080 = proSetting == "1080p";
-                        bool neo = tv1080 || (custom ? proBox("ps4_pro_checkerboard") : true);
-                        if (neo) start.EnvironmentVariables["RYGT_NEO"] = "1";
-                        else start.EnvironmentVariables.Remove("RYGT_NEO");
-                        if (tv1080) start.EnvironmentVariables["RYGT_NEO_TV"] = "1080";
-                        else start.EnvironmentVariables.Remove("RYGT_NEO_TV");
-                        var proOptionsOn = new List<string>();
-                        var proOptionNames = new[] { "ps4_pro_blur", "blur", "ps4_pro_replays60", "replays60",
-                                                     "ps4_pro_replay_blur", "replayblur", "ps4_pro_garage60", "garage60",
-                                                     "ps4_pro_lod", "lod" };
-                        for (int i = 0; i < proOptionNames.Length; i += 2)
-                        {
-                            bool on = custom ? proBox(proOptionNames[i]) : proSetting == "full";
-                            if (on) proOptionsOn.Add(proOptionNames[i + 1]);
-                        }
-                        if (proOptionsOn.Count != 0) start.EnvironmentVariables["RYGT_NEO_EXTRAS"] = string.Join(",", proOptionsOn);
-                        else start.EnvironmentVariables.Remove("RYGT_NEO_EXTRAS");
-                    }
                     // FEAT-GTS-254: the Advanced page's switches and other variables last, so they win.
                     TrophyStore.ApplyEnvironment(root, start);
-                    int customCount = CustomEnvironment.Apply(start, new Settings(GameInfo.GT7.IniPath(root)).Env);
+                    int customCount = ConfigureDisplayLaunch(start, root, GameInfo.GT7, new Settings(GameInfo.GT7.IniPath(root)).Env);
                     if (customCount > 0) AppendSetupLog(root, GameInfo.GT7.TitleId, customCount + " custom environment variable(s) applied.");
                     started = Process.Start(start);
                 }

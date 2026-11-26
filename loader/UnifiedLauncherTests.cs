@@ -150,12 +150,115 @@ namespace RyGT
             return pages.Keys.ToList();
         }
 
+        static void CheckSceneSelector(LoaderForm form, GameInfo game, string root)
+        {
+            var pages = (Dictionary<string, System.Windows.Forms.Panel>)typeof(LoaderForm)
+                .GetField("pages", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(form);
+            var display = pages["Display"];
+            var scene = (System.Windows.Forms.ComboBox)display.Controls.Find("SceneResolution", true).Single();
+            var output = (System.Windows.Forms.ComboBox)display.Controls.Find("OutputResolution", true).Single();
+            Check((string)scene.SelectedItem == "Game default", "Existing profiles use the game's scene size");
+            Check(output.Items.Contains("3840 x 2160"), "4K is a selectable window size");
+            scene.SelectedItem = "2560 x 1440";
+            var config = File.ReadAllText(game.ConfigPath(root));
+            Check(config.Contains("2560x1440"), "Scene preset persisted for " + game.TitleId);
+            Check(display.Controls.Find("CameraShape", true).Length == 0 && display.Controls.Find("WideSceneHeight", true).Length == 0,
+                  "Render resolution replaces both wide selectors");
+            Check(display.Controls.Find("CustomRenderResolution", true).Length == 1, "Custom rendering dimensions are available");
+            var preview = display.Controls.Find("ScenePreview", true).Single();
+            var screen = (System.Windows.Forms.ComboBox)display.Controls.Find("DisplayMode", true).Single();
+            output.SelectedItem = "1280 x 720";
+            Check(preview.Text.Contains("Rendered at 2560 × 1440  →  Window 1280 × 720"), "Window size and render resolution are distinct");
+            screen.SelectedIndex = 1;
+            Check(!output.Enabled && preview.Text.Contains("Display " + output.Text.Replace(" x ", " × ")), "Borderless shows the effective display resolution");
+            screen.SelectedIndex = 0;
+            Check(output.Enabled && (string)output.SelectedItem == "1280 x 720", "Window size is restored after borderless");
+            output.SelectedItem = "2560 x 1080";
+            scene.SelectedItem = "Auto (fit to window size)";
+            Check(preview.Text.Contains("Rendered at 2560 × 1080  →  Window 2560 × 1080"), "Auto fits the entire 21:9 window");
+            output.SelectedItem = "5120 x 1440";
+            Check(preview.Text.Contains("Rendered at 5120 × 1440  →  Window 5120 × 1440"), "Auto follows a change to a 32:9 window");
+            string automatic = File.ReadAllText(game.ConfigPath(root));
+            Check(automatic.Contains("\"native_resolution\":\"auto\"") &&
+                  (game.Kind != GameKind.GTSport || automatic.Contains("\"wide_scene_height\":1440")),
+                  "Auto and the current ultrawide allocation survive reopening");
+            screen.SelectedIndex = 1;
+            Check((string)scene.SelectedItem == "Auto (fit to display resolution)", "Fullscreen Auto refers to the display");
+            screen.SelectedIndex = 0;
+            Check((string)scene.SelectedItem == "Auto (fit to window size)" && preview.Text.Contains("Rendered at 5120 × 1440"),
+                  "Windowed Auto is restored after fullscreen");
+            output.SelectedItem = "1280 x 720";
+            Check(preview.Text.Contains("Rendered at 1280 × 720") && (game.Kind != GameKind.GTSport ||
+                  File.ReadAllText(game.ConfigPath(root)).Contains("\"wide_scene\":false")), "Auto returns to 16:9");
+            scene.SelectedItem = "2560 x 1440";
+            var graphics = pages["Graphics"];
+            var hdr = (System.Windows.Forms.CheckBox)display.Controls.Find("HdrOutput", true).Single();
+            hdr.Checked = true;
+            Check(File.ReadAllText(game.ConfigPath(root)).Contains("\"hdr_allowed\":true"), "HDR on Display writes the current game's profile");
+            hdr.Checked = false;
+            var pro = (System.Windows.Forms.ComboBox)graphics.Controls.Find("ProMode", true).Single();
+            var warning = graphics.Controls.Find("ProReconstructionWarning", true).Single();
+            var guide = graphics.Controls.Find("ImageQualityGuide", true).Single();
+            var checker = (System.Windows.Forms.CheckBox)graphics.Controls.Find("ps4_pro_checkerboard", true).Single();
+            bool gts = game.Kind == GameKind.GTSport;
+            Check(graphics.Controls.Find("ps4_pro_garage60", true).Length == (gts ? 0 : 1) &&
+                  graphics.Controls.Find("ps4_pro_replay_blur", true).Length == (gts ? 0 : 1),
+                  "Only GT7 has the two additional effects");
+            pro.SelectedIndex = 2;
+            Check(scene.Enabled && !checker.Checked, "Pro with a 1080p TV allows fixed resolution");
+            pro.SelectedIndex = 1;
+            Check(!scene.Enabled && preview.Text.Contains("checkerboard"), "Pro with a 4K TV owns the scene");
+            Check(warning.Text.Contains("DLSS") && warning.Text.Contains("Game default") &&
+                  preview.Text.Contains("3840 × 2160") && preview.Text.Contains("1080p TV"),
+                  "Checkerboard explains the separate paths to native 4K and DLSS");
+            pro.SelectedIndex = 3;
+            Check(!scene.Enabled, "Full excludes fixed resolution");
+            pro.SelectedIndex = 4;
+            Check(!scene.Enabled, "Custom with checkerboard excludes fixed resolution");
+            pro.SelectedIndex = 2;
+            Check(scene.Enabled && (string)scene.SelectedItem == "2560 x 1440", "Fixed preset survives TV changes");
+            output.SelectedItem = "3440 x 1440";
+            Check(scene.Enabled && preview.Text.Contains("2560 × 1440") && preview.Text.Contains("centered"),
+                  "Fixed 16:9 remains centered on a wide output");
+            pro.SelectedIndex = 0;
+            scene.SelectedItem = "3440 x 1440";
+            Check(preview.Text.Contains("Rendered at 3440 × 1440"), "Exact ultrawide render size");
+            output.SelectedItem = "5120 x 1440";
+            Check(preview.Text.Contains("same aspect ratio"), "Warn before presenting a different wide aspect");
+            scene.SelectedItem = "5120 x 1440";
+            Check(preview.Text.Contains("Rendered at 5120 × 1440"), "32:9 at 1440p");
+            scene.SelectedItem = "3840 x 1080";
+            Check(preview.Text.Contains("Rendered at 3840 × 1080  →  Window 5120 × 1440"), "32:9 at 1080p in a larger window");
+            var stored = File.ReadAllText(game.ConfigPath(root));
+            Check(stored.Contains("3840x1080") && (!gts || stored.Contains("\"wide_scene_height\":1080")), "Exact wide preset reaches the game profile");
+            // Reopen a custom size absent from the built-in presets and its monitor modes.
+            File.WriteAllText(game.ConfigPath(root), stored.Replace("3840x1080", "4096x1152"));
+            using (var reopened = new LoaderForm(game.Kind, root)) {
+                var selected = (System.Windows.Forms.ComboBox)reopened.Controls.Find("SceneResolution", true).Single();
+                Check((string)selected.SelectedItem == "4096 x 1152", "Custom ultrawide selection survives reopening");
+            }
+            scene.SelectedItem = "2560 x 1440";
+            Check(preview.Text.Contains("centered"), "Switching back to a standard render size restores 16:9");
+            scene.SelectedIndex = 0;
+            var method = (System.Windows.Forms.ComboBox)graphics.Controls.Find("UpscalingMethod", true).Single();
+            method.SelectedItem = "NVIDIA DLSS";
+            Check((string)method.SelectedItem == "NVIDIA DLSS" && guide.Text.Contains(gts ? "Start with Quality" : "Auto (window size)"),
+                  "DLSS guidance matches this game's quality settings");
+            method.SelectedItem = "Off";
+            Check(guide.Text.Contains("native 4K"), "Upscaling Off explains native 4K");
+        }
+
         static void FormChecks(string root)
         {
             string gts = Folder(root, "form-gts"), gt7 = Folder(root, "form-gt7");
+            foreach (var install in new[] { gts, gt7 }) {
+                string dlss = Folder(install, "dlss");
+                foreach (var dll in new[] { "nvngx_dlss.dll", "ryGT_dlss.dll" }) File.WriteAllText(Path.Combine(dlss, dll), "");
+            }
             File.WriteAllText(Path.Combine(gt7, "RyGT7.ini"), "");
             using (var form = new LoaderForm(GameKind.GTSport, gts))
             {
+                CheckSceneSelector(form, GameInfo.GTSport, gts);
                 var pages = Pages(form);
                 Check(pages.Contains("Display") && pages.Contains("Graphics") && pages.Contains("Shaders") && pages.Contains("Controls") &&
                       pages.Contains("Advanced") && !pages.Contains("Online") && !pages.Contains("Account"), "GT Sport's pages");
@@ -169,6 +272,7 @@ namespace RyGT
             }
             using (var form = new LoaderForm(GameKind.GT7, gt7))
             {
+                CheckSceneSelector(form, GameInfo.GT7, gt7);
                 var pages = Pages(form);
                 Check(pages.Contains("Online") && pages.Contains("Account") && pages.Contains("Controls") && pages.Contains("Graphics"), "GT7's pages");
                 // ryGT7's defaults are written into GT7's own config, as ryGT7's launcher did.

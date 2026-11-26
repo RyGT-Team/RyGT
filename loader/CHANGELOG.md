@@ -6,14 +6,26 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
-## 0.3.21 - 2026-11-24
+## 0.3.22 - 2026-11-26
 
 * FEAT-RT-032: GT7's Display page gets a Game language setting (RyGT #113). The game follows the console's
   language, which was always English unless RTY_SYSTEM_LANGUAGE was set by hand; the chosen language is now
   passed as RYGT_SYSTEM_LANGUAGE.
 
+## 0.3.21 - 2026-11-26
+
+* FIX-RT-034: GT7 needs update 1.71, and the launcher now says so. The Game page's field reads
+  "Update 1.71 (if separate)", the setup log names the update from the game's param.sfo
+  (`VERSION`; `APP_VER` stays 01.00 in a merged dump), and Set up stops with a clear message
+  for any other update instead of letting the game fail to start or crash.
+
 ## 0.3.20 - 2026-11-24
 
+* FEAT-RT-031: In Display, choose a monitor mode or enter a custom window size. GT Sport and
+  GT7 can match their native 16:9 scene to that output up to 3840 x 2160, or use
+  an independent scene preset. Disable upscaling and experimental scene scaling
+  to use a native scene profile. `RYGT_NATIVE_4K=0` disables the override for
+  one launch and `RYGT_NATIVE_4K=1` selects the 4K reference.
 * FEAT-RT-031: Add an experimental native Thrustmaster T300RS profile for GT7 and GT Sport.
   Each game saves its own wheel settings, with the old shared file as the initial settings.
 
