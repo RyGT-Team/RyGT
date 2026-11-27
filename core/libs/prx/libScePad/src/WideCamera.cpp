@@ -94,6 +94,68 @@ float DisplayAspect() {
     return static_cast<float>(ratio);
 }
 
+// FEAT-GT7-202: a taller view on screens taller than 16:9 (16:10, 4:3). GT7 keeps the vertical
+// field of view, so with the aspect above set to 1.6 its race camera only loses the sides (Hor-).
+// The scene's camera is wrapped in a projection adjuster (vtable 0x14551bb50, projection 0x142779680)
+// that scales row 0 by y * (m11 / m00) / x and row 1 by y. The race scene (0x141eee070) fills it at
+// 0x1edf2b8: x = the projection's aspect, y = a per-view scale (1.0 in races). Taking
+// y *= x / (16/9) keeps m00 at its 16:9 value and grows the view by the same factor in height
+// (Vert+): the width seen is the 16:9 one, with more above and below. Views 16:9 or wider get
+// factor 1. The two stores are moved into a stub that does this; xmm2 is free after them.
+constexpr std::uint64_t TallerViewSite = 0x1edf2b8;
+constexpr std::uint8_t TallerViewCode[16] = {
+    0xc5, 0xfa, 0x11, 0x85, 0x30, 0xf0, 0xff, 0xff,  // vmovss [rbp-0xfd0], xmm0  (x)
+    0xc5, 0xfa, 0x11, 0x95, 0x34, 0xf0, 0xff, 0xff,  // vmovss [rbp-0xfcc], xmm2  (y)
+};
+
+void InstallTallerView(std::uint8_t* base) {
+    std::uint8_t* code = base + 0x10000 + TallerViewSite;
+    MEMORY_BASIC_INFORMATION info;
+    if (VirtualQuery(code, &info, sizeof(info)) == 0 || info.State != MEM_COMMIT ||
+        std::memcmp(code, TallerViewCode, sizeof(TallerViewCode)) != 0) {
+        std::fprintf(stderr, "[patch] FEAT-GT7-202 GT7 taller view: code not found, left alone\n");
+        std::fflush(stderr);
+        return;
+    }
+    auto* stub = static_cast<std::uint8_t*>(
+        VirtualAlloc(nullptr, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if (stub == nullptr) return;
+    // x of 0 means "no aspect" to the adjuster (it then scales by y alone), so x at or below 0.25,
+    // or NaN, keeps y as it is. The next original instruction is a vucomiss, so flags are free.
+    const std::uint8_t body[] = {
+        0xc5, 0xfa, 0x11, 0x85, 0x30, 0xf0, 0xff, 0xff,  // 00 vmovss [rbp-0xfd0], xmm0
+        0xc5, 0xfa, 0x11, 0x95, 0x34, 0xf0, 0xff, 0xff,  // 08 vmovss [rbp-0xfcc], xmm2
+        0xc5, 0xf8, 0x2e, 0x05, 0x40, 0x00, 0x00, 0x00,  // 10 vucomiss xmm0, [0x58] (0.25)
+        0x76, 0x20,                                      // 18 jbe 0x3a (x <= 0.25 or NaN)
+        0xc5, 0xfa, 0x59, 0x15, 0x2e, 0x00, 0x00, 0x00,  // 1a vmulss xmm2, xmm0, [0x50] (9/16)
+        0xc5, 0xea, 0x5d, 0x15, 0x2a, 0x00, 0x00, 0x00,  // 22 vminss xmm2, xmm2, [0x54] (1)
+        0xc5, 0xea, 0x59, 0x95, 0x34, 0xf0, 0xff, 0xff,  // 2a vmulss xmm2, xmm2, [rbp-0xfcc]
+        0xc5, 0xfa, 0x11, 0x95, 0x34, 0xf0, 0xff, 0xff,  // 32 vmovss [rbp-0xfcc], xmm2
+        0xff, 0x25, 0x00, 0x00, 0x00, 0x00,              // 3a jmp [rip] -> back after the stores
+    };
+    static_assert(sizeof(body) + 8 <= 0x50, "stub code runs into its constants");
+    std::memcpy(stub, body, sizeof(body));
+    const std::uint64_t back = reinterpret_cast<std::uint64_t>(code + sizeof(TallerViewCode));
+    std::memcpy(stub + sizeof(body), &back, 8);
+    const float constants[3] = {9.0f / 16.0f, 1.0f, 0.25f};
+    std::memcpy(stub + 0x50, constants, sizeof(constants));
+    DWORD old = 0;
+    if (!VirtualProtect(stub, 0x1000, PAGE_EXECUTE_READ, &old)) return;
+    FlushInstructionCache(GetCurrentProcess(), stub, 0x1000);
+
+    std::uint8_t jump[16] = {0xff, 0x25, 0x00, 0x00, 0x00, 0x00};  // jmp [rip] -> stub, 2 nops
+    const std::uint64_t target = reinterpret_cast<std::uint64_t>(stub);
+    std::memcpy(jump + 6, &target, 8);
+    jump[14] = 0x90;
+    jump[15] = 0x90;
+    if (!VirtualProtect(code, sizeof(jump), PAGE_EXECUTE_READWRITE, &old)) return;
+    std::memcpy(code, jump, sizeof(jump));
+    VirtualProtect(code, sizeof(jump), old, &old);
+    FlushInstructionCache(GetCurrentProcess(), code, sizeof(jump));
+    std::fprintf(stderr, "[patch] FEAT-GT7-202 GT7 taller view: race view keeps the 16:9 width\n");
+    std::fflush(stderr);
+}
+
 }
 
 namespace Pad {
@@ -124,6 +186,7 @@ void InstallWideCamera() {
     std::fprintf(stderr, "[patch] GT7 ultrawide: aspect %.3f at %d of %d places\n", aspect, patched,
         static_cast<int>(sizeof(AspectStores) / sizeof(AspectStores[0])));
     std::fflush(stderr);
+    if (patched > 0 && aspect < 16.0f / 9.0f) InstallTallerView(base);
 }
 
 }
