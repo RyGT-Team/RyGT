@@ -306,18 +306,12 @@ namespace RyGT
             };
             graphics.Controls.Add(addDlss);
             var dlssSharpen = AddDlssSharpening(graphics, dlss);
-            // DLSS and FSR both upscale, so one at a time; DLSS runs in Performance mode (#61).
+            // DLSS and FSR share the same reconstruction pass.
             fsr.CheckedChanged += delegate { if (fsr.Checked && dlss.Checked) dlss.Checked = false; };
             Action updateDlss = delegate
             {
                 if (!dlss.Checked) return;
                 if (fsr.Checked) fsr.Checked = false;
-                try
-                {
-                    if (ReadStringSetting("GPU", "dlss_quality", "performance") != "performance")
-                        WriteSetting("GPU", "dlss_quality", "performance");
-                }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the DLSS setting: " + e.Message); }
             };
             dlss.CheckedChanged += delegate { updateDlss(); };
             updateDlss();
@@ -465,34 +459,65 @@ namespace RyGT
                 new[] { "Supersampling - 150% (2880 x 1620)", "", "1.5" },
                 new[] { "Supersampling - 170% (3264 x 1836)", "", "1.7" },
                 new[] { "Supersampling - 200% (3840 x 2160)", "", "2" },
-                new[] { "Supersampling - 300% (5760 x 3240)", "", "3" } };
+                new[] { "Supersampling - 300% (5760 x 3240)", "", "3" },
+                new[] { "Auto (window size)", "", "0" } };
             var quality = combo();
-            foreach (var item in qualities) quality.Items.Add(item[0]);
-            string savedRatio = ReadStringSetting("GPU", "upscale_ratio", "0");
-            quality.SelectedIndex = sceneBox.Checked ? Math.Min(4, Math.Max(0, sceneCombo.SelectedIndex))
-                : Math.Max(5, Array.FindIndex(qualities, item => item[2] == savedRatio));
-            quality.SelectedIndexChanged += delegate
-            {
-                var item = qualities[quality.SelectedIndex];
-                sceneBox.Checked = item[1] != "";
-                if (item[1] != "") sceneCombo.SelectedIndex = int.Parse(item[1]);
-                try { WriteSetting("GPU", "upscale_ratio", item[2] != "" ? item[2] : "0"); }
-                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-            };
-            row(upscaling, "Quality / Supersampling", quality);
+            quality.Name = "UpscalingQuality";
+            row(upscaling, "Quality", quality);
             var qualityGuide = Hint("");
             qualityGuide.Name = "ImageQualityGuide";
             upscaling.Controls.Add(qualityGuide);
+            // As on GT7's page: an accent line while NVIDIA DLSS is selected.
+            var dlssAdvice = Hint("");
+            dlssAdvice.Name = "DlssAdvice";
+            dlssAdvice.ForeColor = Dark.AccentText;
+            dlssAdvice.Visible = false;
+            upscaling.Controls.Add(dlssAdvice);
+            bool fillingQuality = false;
             Action updateQualityGuide = delegate {
+                dlssAdvice.Text = upscaler.SelectedIndex == 4 ? DlssAdvice : "";
+                dlssAdvice.Visible = upscaler.SelectedIndex == 4;
+                if (quality.SelectedIndex < 0) return;
                 qualityGuide.Text = upscaler.SelectedIndex == 4
-                    ? UseDlssGuide + " Start with Quality. Try Ultra Quality for more detail, or Balanced then Performance if you need more FPS."
+                    ? UseDlssGuide + " " + DlssModeGuide(quality.SelectedIndex)
                     : upscaler.SelectedIndex == 0 ? Native4kGuide +
-                      (sceneBox.Checked ? " Set Quality / Supersampling to Native (100%) to turn off experimental scaling." : "")
+                      (sceneBox.Checked ? " Set Quality to Native (100%) to turn off experimental scaling." : "")
                     : "Below 100%, the percentage sets the render size relative to the display. Above 100%, it sets the upscaler's output relative to the game's image.";
             };
-            upscaler.SelectedIndexChanged += delegate { updateQualityGuide(); };
-            quality.SelectedIndexChanged += delegate { updateQualityGuide(); };
-            updateQualityGuide();
+            Action fillQuality = delegate {
+                fillingQuality = true;
+                quality.Items.Clear();
+                if (upscaler.SelectedIndex == 4) {
+                    quality.Items.AddRange(RenderResolution.DlssLabels);
+                    var gpu = ReadGpuSettings(root, GameInfo.GTSport);
+                    string saved = RenderResolution.SavedDlssMode(true, key => gpu.ContainsKey(key) ? gpu[key] : null);
+                    quality.SelectedIndex = Array.IndexOf(RenderResolution.DlssModes, saved);
+                } else {
+                    foreach (var item in qualities) quality.Items.Add(item[0]);
+                    string ratio = ReadStringSetting("GPU", "upscale_ratio", "0");
+                    quality.SelectedIndex = sceneBox.Checked ? Math.Min(4, Math.Max(0, sceneCombo.SelectedIndex))
+                        : Math.Max(5, Array.FindIndex(qualities, item => item[2] == ratio));
+                }
+                fillingQuality = false;
+                updateQualityGuide();
+            };
+            quality.SelectedIndexChanged += delegate {
+                if (fillingQuality || quality.SelectedIndex < 0) return;
+                try {
+                    if (upscaler.SelectedIndex == 4) {
+                        WriteSetting("GPU", "dlss_preset", RenderResolution.DlssModes[quality.SelectedIndex]);
+                    } else {
+                        var item = qualities[quality.SelectedIndex];
+                        sceneBox.Checked = item[1] != "";
+                        if (sceneBox.Checked) sceneCombo.SelectedIndex = int.Parse(item[1]);
+                        WriteSetting("GPU", "upscale_ratio", item[2] != "" ? item[2] : "0");
+                    }
+                } catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+                updateQualityGuide();
+                refreshSceneChoice();
+            };
+            upscaler.SelectedIndexChanged += delegate { fillQuality(); refreshSceneChoice(); };
+            fillQuality();
             // PERF-210: AMD Anti-Lag (VK_AMD_anti_lag; AMD GPUs whose driver has it). Frame
             // generation paces its own frames, so Anti-Lag is off while it is on.
             var antiLag = AddOption(upscaling, "", "GPU", "anti_lag", false);
@@ -837,6 +862,12 @@ namespace RyGT
         {
             experimentalSceneSize = null;
             if (!ReadSetting("GPU", "experimental_render_scale", false)) return;
+            if (ReadSetting("GPU", "dlss_enabled", false) && !ReadSetting("GPU", "fsr_enabled", false) &&
+                SavedProMode() == "off") {
+                var gpu = ReadGpuSettings(root, GameInfo.GTSport);
+                if (SceneDlssAvailable(root, key => gpu.ContainsKey(key) ? gpu[key] : null,
+                                       Environment.GetEnvironmentVariable("RYGT_DLSS_GUEST_OUTPUT"))) return;
+            }
             if (!ReadSetting("GPU", "native_renderer", true))
                 throw new InvalidOperationException("Experimental scene resolution requires the Native renderer.");
             if (ReadSetting("GPU", "ps4_pro", false))

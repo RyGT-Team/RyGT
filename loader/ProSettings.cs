@@ -12,7 +12,22 @@ namespace RyGT
         static readonly string[] ProModes = { "off", "4k", "1080p", "full", "custom" };
         const string Native4kGuide = "For native 4K, choose PS4 Pro, 1080p TV, set upscaling to Off and choose 3840 × 2160 under Display → Render resolution.";
         const string CheckerboardWarning = "PS4 Pro, 4K TV uses the game's checkerboard reconstruction. DLSS and custom render resolutions are unavailable with checkerboard on.";
-        const string UseDlssGuide = "For DLSS, select PS4 (no Pro mode) and set Display → Render resolution to Game default.";
+        const string DlaaLabel = "DLAA (native resolution)";
+        static string DlssModeGuide(int index)
+        {
+            if (index == 0) return "Auto selects Quality up to 1440p, Balanced below 2160p, and Performance at 2160p.";
+            if (index == 1) return DlaaGuide;
+            return RenderResolution.DlssLabels[index] + " renders the scene at about " +
+                new[] { "", "", "67%", "58%", "50%", "33%" }[index] + " per axis and reconstructs it before the HUD.";
+        }
+        // Shown in both games while NVIDIA DLSS is the upscaling method. Measured in a GT7 race on a
+        // Ryzen 7 8700G and an RTX 4070 only, 3840 x 2160 output: 52.2 fps with DLSS Performance
+        // against 55.5 native, 33.8 with DLAA (shadGT #144). The frame rate was not the card's to
+        // give there, so a smaller scene bought nothing and the upscaler added its own cost.
+        // Take the line out when the port stops being limited before the card.
+        const string DlssAdvice = "Not recommended for now: in our tests (GT7, RTX 4070, 4K) the game was not faster with DLSS than without, and DLAA was much slower. It can help only where the graphics card is the limit, which is not the case at the moment.";
+        const string DlaaGuide = "DLAA applies NVIDIA anti-aliasing at the full render resolution.";
+        const string UseDlssGuide = "Use base PS4, SDR and no frame generation for temporal DLSS. Choose the target under Display → Render resolution. Auto and Game default fit the window or display.";
 
         sealed class ProOption
         {
