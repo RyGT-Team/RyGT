@@ -3587,6 +3587,17 @@ namespace RyGT
             return new Dictionary<string, object>();
         }
 
+        // The window the game opens, or the desktop for borderless full screen.
+        static Size OutputSize(Func<string, object> setting)
+        {
+            var desktop = new DevMode { Size = (ushort)Marshal.SizeOf(typeof(DevMode)) };
+            bool haveDesktop = EnumDisplaySettings(null, -1, ref desktop);
+            bool borderless = Equals(setting("full_screen"), true) && !Equals(setting("full_screen_mode"), "Fullscreen");
+            return borderless && haveDesktop ? new Size((int)desktop.PelsWidth, (int)desktop.PelsHeight)
+                : WindowSize(setting("window_width") as int? ?? 0, setting("window_height") as int? ?? 0,
+                             (int)desktop.PelsWidth, (int)desktop.PelsHeight);
+        }
+
         // FEAT-RT-031: both games use the same scene and output selection.
         static int ConfigureDisplayLaunch(ProcessStartInfo start, string root, GameInfo game, List<EnvVar> overrides)
         {
@@ -3604,7 +3615,13 @@ namespace RyGT
                     throw new InvalidOperationException("Use the same aspect for RYGT_ASPECT and SHADGT_ASPECT in Advanced.");
                 // FEAT-RT-042: the Display page's screen shape, unless Advanced sets one.
                 string shape = setting("screen_aspect") as string;
-                if (shape != "auto" && !RenderResolution.MatchOutputShape(shape)) shape = "16:9";
+                if (shape == "auto") {
+                    // The shape of the output the game opens (the same size the render resolution
+                    // uses), passed as a number so the runtime and the renderer agree on it.
+                    Size output = OutputSize(setting);
+                    shape = output.Width + ":" + output.Height;
+                }
+                if (!RenderResolution.MatchOutputShape(shape)) shape = "16:9";
                 env["RYGT_ASPECT"] = env["SHADGT_ASPECT"] = camera ?? presenter ?? shape;
             } else if (env["SHADGT_ASPECT"] == null) {
                 env["SHADGT_ASPECT"] = "16:9";
@@ -3623,12 +3640,7 @@ namespace RyGT
                 AppendSetupLog(root, game.TitleId, "PS4 Pro 4K TV: the game controls scene resolution.");
                 return;
             }
-            var desktop = new DevMode { Size = (ushort)Marshal.SizeOf(typeof(DevMode)) };
-            bool haveDesktop = EnumDisplaySettings(null, -1, ref desktop);
-            bool borderless = Equals(setting("full_screen"), true) && !Equals(setting("full_screen_mode"), "Fullscreen");
-            Size output = borderless && haveDesktop ? new Size((int)desktop.PelsWidth, (int)desktop.PelsHeight)
-                : WindowSize(setting("window_width") as int? ?? 0, setting("window_height") as int? ?? 0,
-                             (int)desktop.PelsWidth, (int)desktop.PelsHeight);
+            Size output = OutputSize(setting);
             string mode = RenderResolution.SavedMode(gts, setting, output);
             string forced = env["RYGT_NATIVE_4K"];
             if (forced != null) mode = forced == "1" ? "3840x2160" : "game";
