@@ -467,8 +467,16 @@ namespace RyGT
             var qualityGuide = Hint("");
             qualityGuide.Name = "ImageQualityGuide";
             upscaling.Controls.Add(qualityGuide);
+            // As on GT7's page: an accent line while NVIDIA DLSS is selected.
+            var dlssAdvice = Hint("");
+            dlssAdvice.Name = "DlssAdvice";
+            dlssAdvice.ForeColor = Dark.AccentText;
+            dlssAdvice.Visible = false;
+            upscaling.Controls.Add(dlssAdvice);
             bool fillingQuality = false;
             Action updateQualityGuide = delegate {
+                dlssAdvice.Text = upscaler.SelectedIndex == 4 ? DlssAdvice : "";
+                dlssAdvice.Visible = upscaler.SelectedIndex == 4;
                 if (quality.SelectedIndex < 0) return;
                 qualityGuide.Text = upscaler.SelectedIndex == 4
                     ? UseDlssGuide + " " + DlssModeGuide(quality.SelectedIndex)

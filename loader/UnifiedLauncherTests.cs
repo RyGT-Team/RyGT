@@ -244,6 +244,14 @@ namespace RyGT
             method.SelectedItem = "NVIDIA DLSS";
             Check((string)method.SelectedItem == "NVIDIA DLSS" && guide.Text.Contains("Render resolution"),
                   "DLSS guidance matches this game's quality settings");
+            // DLSS is not recommended for now, in both games, and only while it is the selected method.
+            var dlssAdvice = graphics.Controls.Find("DlssAdvice", true).Single();
+            Check(dlssAdvice.Text.StartsWith("Not recommended for now") && dlssAdvice.Text.Contains("RTX 4070") &&
+                  dlssAdvice.Text.Contains("graphics card is the limit"), "DLSS carries its advice, " + game.TitleId);
+            method.SelectedIndex = 0;
+            Check(dlssAdvice.Text == "", "No DLSS advice with upscaling off");
+            method.SelectedItem = "NVIDIA DLSS";
+            Check(dlssAdvice.Text.StartsWith("Not recommended for now"), "The DLSS advice comes back with DLSS");
             var quality = (System.Windows.Forms.ComboBox)graphics.Controls.Find("UpscalingQuality", true).Single();
             foreach (var label in new[] { "Quality", "Balanced", "Performance", "Ultra Performance", "Auto" }) {
                 quality.SelectedItem = label;

@@ -61,6 +61,12 @@ namespace RyGT
             methodNote.Name = "ImageQualityGuide";
             upscaling.Controls.Add(comboRow("Method", method, methodNote));
             upscaling.Controls.Add(methodNote);
+            // Like the frame generation advice below: an accent line while NVIDIA DLSS is selected.
+            var dlssAdvice = noteLabel();
+            dlssAdvice.Name = "DlssAdvice";
+            dlssAdvice.ForeColor = Dark.AccentText;
+            dlssAdvice.Visible = false;
+            upscaling.Controls.Add(dlssAdvice);
             // FEAT-GT7-180: shown when a configuration saved before has both NVIDIA DLSS and the PS4 Pro
             // 3200 x 1800 picture on (see the PS4 Pro mode section).
             var methodProWarning = noteLabel();
@@ -171,6 +177,8 @@ namespace RyGT
                                 : dlssOk && quality.SelectedIndex == 1 ? DlaaGuide
                                 : dlssOk ? UseDlssGuide
                                          : "RTX cards only. Download the NVIDIA files below first.";
+                dlssAdvice.Text = m == 3 ? DlssAdvice : "";
+                dlssAdvice.Visible = m == 3;
                 bool scaler = m == 2 || m == 3;
                 quality.Enabled = scaler;
                 int q = Math.Max(0, quality.SelectedIndex);
