@@ -269,6 +269,18 @@ void ApplyWheel(PadInputState& state) {
         // reporting itself as the wheel, the title is in wheel mode and shifts with L1/R1.)
         fromWheel.buttons &= ~static_cast<std::uint32_t>(0x0C00);
         state.buttons &= ~static_cast<std::uint32_t>(0x0C00);
+        // FIX-RT-040 (RyGT #130, test switch): RYGT_WHEEL_PAD_BUTTONS=0 keeps all of the wheel's
+        // buttons off the ordinary pad while the title has the wheel open; the title still reads
+        // them through the wheel's own handle. GT7 maps that pad as a DualShock, so a wheel button
+        // given a wheel job in GT7 (the camera, say) also did the pad job of its pad button
+        // (Square: downshift). Off by default until menus are known to work from the wheel alone.
+        static const bool wheelOnly = [] {
+            const char* value = std::getenv("RYGT_WHEEL_PAD_BUTTONS");
+            const bool off = value != nullptr && value[0] == '0';
+            if (off) PAD_WHEEL_LOG("Pad: %s", "FIX-RT-040: wheel buttons reach the game only through the wheel (RYGT_WHEEL_PAD_BUTTONS=0)");
+            return off;
+        }();
+        if (wheelOnly) fromWheel.buttons = 0;
     }
     state.buttons |= fromWheel.buttons;
     for (std::size_t axis = 0; axis < state.sticks.size(); ++axis) {
