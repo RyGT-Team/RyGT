@@ -1926,8 +1926,8 @@ namespace RyGT
             {
                 this.entries = entries;
                 Font = font;
-                heading = new Font(font, FontStyle.Bold);
-                italic = new Font(font, FontStyle.Italic);
+                heading = new Font(font.FontFamily, font.Size + 2.5f, FontStyle.Bold); // FEAT-RT-045: larger than the entries
+                italic =new Font(font, FontStyle.Italic);
                 SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
             }
 
@@ -1951,7 +1951,7 @@ namespace RyGT
                     else if (authored.Success)
                         size = new Size(w, TextRenderer.MeasureText(authored.Groups[1].Value, Font, new Size(w, 0), Line).Height);
                     areas.Add(new Rectangle(x, y, w, size.Height));
-                    y += size.Height + 6;
+                    y += size.Height + (entry.Key == 0 ? 12 : 6); // FEAT-RT-045: more room under a heading
                 }
                 return y + 4;
             }
