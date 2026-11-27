@@ -6,6 +6,80 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.28 - 2026-11-28
+
+* FIX-RT-053: GT7's taller scene asks the renderer first. A taller Screen shape on Native gave GT7 a
+  1920 x 1200 scene on any renderer; one without the menus rendered at 16:9 inside that scene (shadGT
+  FEAT-SGT-243) stretches the menus over the whole height. Without such a renderer GT7 now keeps its
+  16:9 scene and the page says so, as for GT Sport. And a shape that follows the screen reaches GT7 as
+  the output's own width:height (FEAT-RT-042's rule), not as "auto".
+* FIX-RT-052: the Render resolution list says the size really rendered. With a Native screen shape the line
+  still read "Game default" (the game's 1920 x 1080) while the scene was 1920 x 1200 on a 16:10 screen or
+  2576 x 1080 on a 3440 x 1440 one. Each line now shows the scene for the chosen shape ("1920 x 1200",
+  "3440 x 1440"), and "Game default" is the game's own 1920 x 1080 scene only; two lines that would render
+  the same scene are shown once. The list holds 16:9 sizes
+  only: ultrawide sizes come from Screen shape, and one saved by an older launcher or typed in Custom stays
+  in the list as "(fixed shape)". The Shape rendering choices are shorter so that they fit the row.
+* FEAT-RT-051: a Screen shape taller than 16:9 (16:10, 4:3) is rendered at that shape in both games. GT Sport
+  where the renderer can (shadGT FEAT-SGT-210, its switch `RYGT_TALL_SCENE`); GT7 through the patches of its
+  executable that already give it a native wide scene. With Shape rendering on Native, the scene
+  keeps the 16:9 scene's width and gets more lines: 1920 x 1200 on a 16:10 screen, 1920 x 1440 on a 4:3 one,
+  2560 x 1600 beside a 2560 x 1440 Render resolution, within 2160 lines and 4K's pixel count. Until now the
+  1080-line scene was enlarged to the taller screen (11% in height at 16:10).
+  - Refused with a message in PS4 Pro mode and with upscaling on (not played together); Stretched, or a
+    renderer without the taller scene, keeps the 16:9 scene as before.
+  - GT7's menus at 16:9 and its taller race view on such a screen come from the renderer's FIX-SGT-200 /
+    FEAT-SGT-201 and the runtime's FEAT-GT7-202, as for the stretched shape.
+  - When Native cannot apply (GT Sport with a renderer that has no taller scene), the preview says so.
+  - The row added by FIX-RT-050 is named "Shape rendering" (it was "Wide picture"): it decides taller shapes too.
+  Not played yet.
+* FIX-RT-050: a Screen shape wider than 16:9 is rendered at that shape, in both games, and the Display page has
+  the same rows for both. A new row, Shape rendering (`GPU.screen_stretch`), chooses how:
+  - Native, the default: the scene is rendered at the screen's shape, at the Render resolution's height (1080
+    lines for Game default: 2576 x 1080 on a 3440 x 1440 screen, 3840 x 1080 on a 32:9 one). GT7 patches its
+    scene, GT Sport allocates its wide scene (WIDE-001). It needs upscaling off, base PS4 mode in GT7 and the
+    Native renderer in GT Sport; when one is missing the preview and Play say so and name the way out.
+  - Stretched, the old method: the game's 16:9 picture is widened over the screen (twice as wide on a 32:9
+    screen, which shows). Fewer pixels to draw. A wide shape saved before this row existed stays stretched.
+  - Both games list the same shapes: 16:9, match the window or display, 16:10, 4:3, 21:9, 32:9. A taller shape
+    is drawn from the 16:9 scene in both games. In GT Sport it keeps the menus and the HUD 16:9 when the
+    renderer has FEAT-SGT-203; with an older renderer they are stretched with the picture, which the preview says.
+  - GT Sport's Screen shape row no longer turns grey beside a fixed Render resolution. Native works with any
+    height; Stretched and the taller shapes are refused there with a message (never played together).
+  - One decision, `RenderResolution.Plan`, for the preview and for Play, table-tested for both games.
+  Not played yet.
+* FIX-RT-049: the Screen shape setting (FEAT-RT-042) reads older profiles, follows the real screen, and exists
+  for GT Sport.
+  - Since 0.3.20 the launcher started every game at 16:9 whatever the profile said, so GT7's Ultrawide setting
+    and GT Sport's "Fill the screen" were dropped without a word. A shape saved by those launchers
+    (`GPU.aspect_ratio`) is read again while Render resolution is Game default, and shown as it is.
+  - A named shape within 3.5% of the screen's real one follows the screen: "21:9" is 2.333, and the screens sold
+    as 21:9 are 2.370 (2560 x 1080), 2.389 (3440 x 1440) and 2.400 (3840 x 1600).
+  - GT Sport gets the row: 16:9, match the window or display, 16:10, 21:9, 32:9. Its old "Fill the screen"
+    stretched the menus and the race HUD with the picture; on a screen wider than 16:9 the launcher now uses
+    the renderer's wide picture on the game's own 16:9 scene (WIDE-001 with `wide_scene_alloc=false`): the
+    race fills the screen, the menus stay 16:9 in the middle and the race HUD is not stretched (its sides sit
+    at the screen's edges). It needs the Native renderer. Played at 3440 x 1440 on an RTX 4070 only, without
+    upscaling. On a 16:10 screen that wide picture does not exist: 16:10 is the plain stretch there, the race
+    view right and the menus and the HUD about 11% taller, which the preview says (not played). Both need
+    Game default render resolution and are not applied on a PS4 Pro 4K TV; elsewhere GT Sport stays 16:9.
+  - The Display preview says "Old method" when a wider shape stretches the game's 16:9 picture over the screen;
+    an ultrawide Render resolution is sharper but needs upscaling off (and base PS4 mode in GT7). Known limit:
+    in GT7 with DLSS, some menus lose their interface in this mode, a renderer defect (shadGT #152).
+* FIX-RT-048: a game that cannot be started says why. A render resolution Play refuses (upscaling on, the old
+  renderer, a wide size that does not fit the window, GT7 native ultrawide in Pro mode) only wrote a line to
+  setup.log while the window kept reading "is starting". Play now shows the reason in a message and in the
+  status line, and the Display page's preview shows it before Play, with upscaling and the renderer as they
+  are saved. Auto in a 1920 x 1080 window is the game's own scene and is no longer refused with upscaling on,
+  and a DLSS setting left on without the DLSS files (shown as off) no longer counts as upscaling.
+
+## 0.3.26 - 2026-11-27
+
+* FEAT-RT-042: GT7's Display page has a Screen shape setting (16:9, match the window or display, 16:10, 4:3,
+  21:9, 32:9). The race view fills a screen of that shape: wider shows more to the sides, taller more above and
+  below (with the runtime's FEAT-GT7-202 and the renderer's FIX-SGT-200 / FEAT-SGT-201). Menus stay 16:9. A
+  native ultrawide render resolution, or RYGT_ASPECT / SHADGT_ASPECT set in Advanced, still takes over.
+
 ## 0.3.24 - 2026-11-26
 
 * FIX-RT-037: GT7's Graphics page no longer has the "AMD graphics fix" box. The renderer's own AMD fixes made

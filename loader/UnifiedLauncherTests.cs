@@ -91,6 +91,13 @@ namespace RyGT
             transient.Save();
             Check(!File.Exists(Path.Combine(root, LauncherState.FileName)), "Transient state is not saved");
             Check(GameInfo.Parse("GTS") == GameKind.GTSport && GameInfo.Parse("gt7") == GameKind.GT7 && GameInfo.Parse("gt6") == null, "--game values");
+            // FEAT-RT-042: GT7's screen shape as RYGT_ASPECT / SHADGT_ASPECT.
+            Check(RenderResolution.ScreenShape("auto", new Size(1920, 1200)) == "1920:1200", "Match the window: a 16:10 window passes 1920:1200");
+            Check(RenderResolution.ScreenShape("auto", new Size(2560, 1080)) == "2560:1080", "Match the window: an ultrawide output passes its own shape");
+            Check(RenderResolution.ScreenShape("auto", new Size(1920, 1080)) == "16:9", "Match the window: a 16:9 output is the game's 16:9");
+            Check(RenderResolution.ScreenShape("16:10", Size.Empty) == "16:10" && RenderResolution.ScreenShape("4:3", Size.Empty) == "4:3", "A chosen shape is passed as saved");
+            Check(RenderResolution.ScreenShape(null, Size.Empty) == "16:9" && RenderResolution.ScreenShape("16:9", Size.Empty) == "16:9" &&
+                  RenderResolution.ScreenShape("wide", Size.Empty) == "16:9", "No, 16:9 or an unknown shape is 16:9");
         }
 
         static void SettingsChecks(string root)
@@ -159,6 +166,211 @@ namespace RyGT
             var output = (System.Windows.Forms.ComboBox)display.Controls.Find("OutputResolution", true).Single();
             Check((string)scene.SelectedItem == "Game default", "Existing profiles use the game's scene size");
             Check(output.Items.Contains("3840 x 2160"), "4K is a selectable window size");
+            // FEAT-RT-042, FIX-RT-049: the screen shape, what reaches each game, and older profiles.
+            var shape = (System.Windows.Forms.ComboBox)display.Controls.Find("ScreenShape", true).Single();
+            var shapePreview = display.Controls.Find("ScenePreview", true).Single();
+            var launch = typeof(LoaderForm).GetMethod("ConfigureDisplayLaunch", BindingFlags.NonPublic | BindingFlags.Static);
+            Func<string, System.Diagnostics.ProcessStartInfo> configured = preset => {
+                var start = new System.Diagnostics.ProcessStartInfo();
+                foreach (string name in new[] { "RYGT_ASPECT", "SHADGT_ASPECT", "RYGT_NATIVE_4K", "SHADGT_PATCH", "RYGT_PATCH",
+                                                "RYGT_NEO", "SHADGT_NEO", "SHADGT_PS4_PRO", "SHADGT_WIDE_SCENE", "SHADGT_UI_HIRES", "RYGT_TALL_SCENE" })
+                    start.EnvironmentVariables.Remove(name);
+                if (preset != null) start.EnvironmentVariables["SHADGT_ASPECT"] = preset;
+                launch.Invoke(null, new object[] { start, root, game, new List<EnvVar>() });
+                return start;
+            };
+            bool sport = game.Kind == GameKind.GTSport;
+            // FIX-RT-050: the same two rows for both games; a wider shape is rendered natively by default.
+            var widePicture = (System.Windows.Forms.ComboBox)display.Controls.Find("WidePicture", true).Single();
+            Check(shape.Enabled && shape.SelectedIndex == 0 && shape.Items.Count == 6 &&
+                  shape.Items.Contains("16:10") && shape.Items.Contains("4:3") && shape.Items.Contains("32:9"),
+                  "Screen shape starts at 16:9; both games list the same shapes");
+            Check(widePicture.Enabled && widePicture.Items.Count == 2 && widePicture.SelectedIndex == 0 &&
+                  ((string)widePicture.SelectedItem).StartsWith("Native") && ((string)widePicture.Items[1]).Contains("old method"),
+                  "Shape rendering starts at Native; Stretched is named the old method");
+            var plain = configured(null);
+            Check(plain.EnvironmentVariables["SHADGT_ASPECT"] == "16:9" &&
+                  plain.EnvironmentVariables["RYGT_ASPECT"] == (sport ? null : "16:9") &&
+                  (!sport || plain.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "0"), "16:9 reaches " + game.TitleId);
+            output.SelectedItem = "3440 x 1440";
+            // A shape saved by a launcher before 0.3.20 (GPU.aspect_ratio) is shown and reaches the game.
+            string fresh = File.ReadAllText(game.ConfigPath(root));
+            Check(!fresh.Contains("screen_aspect"), "No screen shape was chosen yet");
+            string older = fresh.Contains("\"aspect_ratio\"")
+                ? System.Text.RegularExpressions.Regex.Replace(fresh, "\"aspect_ratio\":\"[^\"]*\"", "\"aspect_ratio\":\"3440:1440\"")
+                : fresh.Replace("\"GPU\":{", "\"GPU\":{\"aspect_ratio\":\"3440:1440\",");
+            Check(older.Contains("\"aspect_ratio\":\"3440:1440\""), "The test profile holds an older launcher's shape");
+            File.WriteAllText(game.ConfigPath(root), older);
+            using (var before = new LoaderForm(game.Kind, root)) {
+                var kept = (System.Windows.Forms.ComboBox)before.Controls.Find("ScreenShape", true).Single();
+                Check((string)kept.SelectedItem == "Custom (3440:1440)", "An older launcher's shape is shown, " + game.TitleId);
+                var keptPicture = (System.Windows.Forms.ComboBox)before.Controls.Find("WidePicture", true).Single();
+                Check(keptPicture.SelectedIndex == 1, "An older launcher's shape stays stretched, " + game.TitleId);
+            }
+            var legacy = configured(null);
+            // GT7 is handed "auto" as the output's width:height (FEAT-RT-042); GT Sport's renderer reads "auto".
+            string legacyShape = legacy.EnvironmentVariables["SHADGT_ASPECT"];
+            Check((sport ? legacyShape == "auto" && legacy.EnvironmentVariables["RYGT_ASPECT"] == null
+                         : legacyShape != null && legacyShape != "auto" && legacyShape != "16:9" && legacyShape.Contains(":") &&
+                           legacy.EnvironmentVariables["RYGT_ASPECT"] == legacyShape) &&
+                  (!sport || (legacy.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" && legacy.EnvironmentVariables["SHADGT_UI_HIRES"] == "1" &&
+                              File.ReadAllText(game.ConfigPath(root)).Contains("\"wide_scene_alloc\":false"))),
+                  "An older launcher's shape reaches " + game.TitleId + (sport ? " as the wide picture on its 16:9 scene" : ""));
+            File.WriteAllText(game.ConfigPath(root), fresh);
+            shape.SelectedIndex = 1;
+            string matched = File.ReadAllText(game.ConfigPath(root));
+            Check((string)shape.SelectedItem == "Match the window or display" && matched.Contains("\"screen_aspect\":\"auto\"") &&
+                  matched.Contains("\"screen_stretch\":false") && matched.Contains("\"native_resolution\":\"game\"") &&
+                  (!sport || (matched.Contains("\"wide_scene\":true") && matched.Contains("\"wide_scene_alloc\":true") &&
+                              matched.Contains("\"wide_scene_height\":1080"))),
+                  "Match the window is saved as a native shape for " + game.TitleId);
+            Check(shapePreview.Text.Contains("Rendered at 2576 × 1080  →  Window 3440 × 1440") && !shapePreview.Text.Contains("Old method"),
+                  "Native: the scene takes the window's shape at the game's height, " + game.TitleId);
+            // FIX-RT-052: the Render resolution line says the size really rendered, not "Game default".
+            Check((string)scene.SelectedItem == "2576 x 1080" && scene.Items.Contains("3440 x 1440") &&
+                  !scene.Items.Contains("Game default") && !scene.Items.Contains("2560 x 1440") &&
+                  !scene.Items.Cast<string>().Any(line => line.Contains("default")),
+                  "The Render resolution list shows the sizes of the chosen shape, and calls none a default, " + game.TitleId);
+            Check(scene.Items.Cast<string>().Distinct().Count() == scene.Items.Count && scene.SelectedIndex == 0,
+                  "Two lines that render the same scene are shown once, " + game.TitleId);
+            if (sport) {
+                // GT Sport's native wide scene needs no patch of the executable: the launch is whole here.
+                var native = configured(null);
+                Check(native.EnvironmentVariables["SHADGT_ASPECT"] == "2576:1080" && native.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" &&
+                      native.EnvironmentVariables["SHADGT_UI_HIRES"] == "1", "The native shape reaches GT Sport");
+            }
+            // The launcher closed and opened again: the choices come back as they were made. (GT Sport's
+            // native scene saves the keys an older profile used for its wide scene; it must not be
+            // read back as an ultrawide Render resolution, which would win over both rows.)
+            using (var again = new LoaderForm(game.Kind, root)) {
+                var againScene = (System.Windows.Forms.ComboBox)again.Controls.Find("SceneResolution", true).Single();
+                var againShape = (System.Windows.Forms.ComboBox)again.Controls.Find("ScreenShape", true).Single();
+                var againPicture = (System.Windows.Forms.ComboBox)again.Controls.Find("WidePicture", true).Single();
+                Check((string)againScene.SelectedItem == "2576 x 1080" && (string)againShape.SelectedItem == "Match the window or display" &&
+                      againPicture.SelectedIndex == 0, "A native shape survives reopening as it was chosen, " + game.TitleId);
+                againPicture.SelectedIndex = 1;
+                string stretchedAgain = File.ReadAllText(game.ConfigPath(root));
+                Check(again.Controls.Find("ScenePreview", true).Single().Text.Contains("Old method") &&
+                      stretchedAgain.Contains("\"screen_stretch\":true") && stretchedAgain.Contains("\"native_resolution\":\"game\"") &&
+                      (!sport || stretchedAgain.Contains("\"wide_scene\":false")) &&
+                      (string)againScene.SelectedItem == "Game default",
+                      "Stretched can be chosen after reopening, " + game.TitleId);
+                againPicture.SelectedIndex = 0;
+            }
+            if (sport) {
+                var reread = configured(null);
+                Check(reread.EnvironmentVariables["SHADGT_ASPECT"] == "2576:1080" &&
+                      File.ReadAllText(game.ConfigPath(root)).Contains("\"native_resolution\":\"game\""),
+                      "Play reads GT Sport's native shape back from the shape, not as a render resolution");
+            }
+            scene.SelectedItem = "3440 x 1440";
+            Check(shapePreview.Text.Contains("Rendered at 3440 × 1440  →  Window 3440 × 1440") &&
+                  File.ReadAllText(game.ConfigPath(root)).Contains("\"native_resolution\":\"2560x1440\"") &&
+                  (!sport || File.ReadAllText(game.ConfigPath(root)).Contains("\"wide_scene_height\":1440")),
+                  "Native: the render resolution gives the height, " + game.TitleId);
+            scene.SelectedIndex = 0;
+            widePicture.SelectedIndex = 1;
+            matched = File.ReadAllText(game.ConfigPath(root));
+            Check((string)scene.SelectedItem == "Game default" && matched.Contains("\"screen_stretch\":true") && (!sport || (matched.Contains("\"wide_scene\":false") && matched.Contains("\"wide_scene_alloc\":false"))),
+                  "Stretched is saved for " + game.TitleId);
+            Check(shapePreview.Text.Contains("Game default render resolution") && shapePreview.Text.Contains("Old method") &&
+                  shapePreview.Text.Contains("stretched over the window") &&
+                  shapePreview.Text.Contains("race HUD unstretched") == sport, "The preview names the old method");
+            var filled = configured(null);
+            // GT7 is handed the output's own width:height where GT Sport's renderer reads "auto" (FEAT-RT-042).
+            Func<string, bool> followsOutput = v => sport ? v == "auto" : v != null && v.Length >= 8 && v.Contains(":");
+            Check(followsOutput(filled.EnvironmentVariables["SHADGT_ASPECT"]) &&
+                  filled.EnvironmentVariables["RYGT_ASPECT"] == (sport ? null : filled.EnvironmentVariables["SHADGT_ASPECT"]) &&
+                  (!sport || (filled.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" && filled.EnvironmentVariables["SHADGT_UI_HIRES"] == "1")),
+                  "The screen's shape reaches " + game.TitleId);
+            var outside = configured("21:9");
+            Check(outside.EnvironmentVariables["SHADGT_ASPECT"] == "21:9" && (!sport || outside.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "0"),
+                  "An aspect set outside the Display page wins");
+            // "21:9" is 2.333; a 3440 x 1440 screen is 2.389 and gets its own shape, a 32:9 one the named shape.
+            shape.SelectedItem = "21:9";
+            Check(File.ReadAllText(game.ConfigPath(root)).Contains("\"screen_aspect\":\"21:9\"") &&
+                  followsOutput(configured(null).EnvironmentVariables["SHADGT_ASPECT"]), "A named 21:9 follows a real 21:9 screen");
+            output.SelectedItem = "5120 x 1440";
+            Check(configured(null).EnvironmentVariables["SHADGT_ASPECT"] == "21:9", "A named 21:9 stays 21:9 on a 32:9 screen");
+            output.SelectedItem = "1280 x 720";
+            if (sport) {
+                var narrow = configured(null);
+                Check(narrow.EnvironmentVariables["SHADGT_ASPECT"] == "16:9" && narrow.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "0" &&
+                      !shapePreview.Text.Contains("Old method"), "GT Sport does not fill a 16:9 window");
+                // A 16:10 screen: GT Sport's plain stretch, and the preview says what it does to the interface.
+                shape.SelectedItem = "16:10";
+                string tallProfile = System.Text.RegularExpressions.Regex.Replace(
+                    System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(game.ConfigPath(root)), "\"window_width\":\\d+", "\"window_width\":1920"),
+                    "\"window_height\":\\d+", "\"window_height\":1200");
+                string wideWindow = File.ReadAllText(game.ConfigPath(root));
+                File.WriteAllText(game.ConfigPath(root), tallProfile);
+                var tall = configured(null);
+                Check(tall.EnvironmentVariables["SHADGT_ASPECT"] == "auto" && tall.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "0" &&
+                      tall.EnvironmentVariables["SHADGT_UI_HIRES"] == null, "GT Sport's 16:10 is its plain stretch on a 16:10 screen");
+                // FEAT-RT-051: with a renderer that has the taller scene (FEAT-SGT-210) and Native, the
+                // launch asks for a 1920 x 1200 scene and saves what the renderer reads from the profile.
+                string fakeRenderer = Path.Combine(root, SwitchWalker.RendererFile);
+                Check(!File.Exists(fakeRenderer), "The test folder has no renderer of its own");
+                Directory.CreateDirectory(Path.GetDirectoryName(fakeRenderer));
+                File.WriteAllBytes(fakeRenderer, System.Text.Encoding.ASCII.GetBytes("RYGT_TALL_SCREEN\0RYGT_TALL_SCENE\0"));
+                try {
+                    var picture = configured(null);
+                    Check(picture.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" && picture.EnvironmentVariables["SHADGT_UI_HIRES"] == "1" &&
+                          picture.EnvironmentVariables["RYGT_TALL_SCENE"] == null && picture.EnvironmentVariables["SHADGT_ASPECT"] == "auto",
+                          "Stretched on a 16:10 screen keeps the 16:9 scene with menus and HUD 16:9");
+                    Check(tallProfile.Contains("\"screen_stretch\":true"), "The test profile is on Stretched here");
+                    File.WriteAllText(game.ConfigPath(root), tallProfile.Replace("\"screen_stretch\":true", "\"screen_stretch\":false"));
+                    var nativeTall = configured(null);
+                    string savedTall = File.ReadAllText(game.ConfigPath(root));
+                    Check(nativeTall.EnvironmentVariables["SHADGT_ASPECT"] == "1920:1200" && nativeTall.EnvironmentVariables["RYGT_TALL_SCENE"] == "1" &&
+                          nativeTall.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" && nativeTall.EnvironmentVariables["SHADGT_UI_HIRES"] == "1" &&
+                          nativeTall.EnvironmentVariables["SHADGT_PATCH"] == null && savedTall.Contains("\"wide_scene_height\":1200") &&
+                          savedTall.Contains("\"wide_scene_alloc\":true") && savedTall.Contains("\"native_resolution\":\"game\""),
+                          "Native on a 16:10 screen asks GT Sport for a 1920 x 1200 scene");
+                } finally { File.Delete(fakeRenderer); }
+                File.WriteAllText(game.ConfigPath(root), wideWindow);
+                Check(configured(null).EnvironmentVariables["SHADGT_ASPECT"] == "16:9", "GT Sport's 16:10 does nothing in a 16:9 window");
+            } else {
+                shape.SelectedItem = "16:10";
+                var taller = configured(null);
+                Check(taller.EnvironmentVariables["SHADGT_ASPECT"] == "16:10" && taller.EnvironmentVariables["RYGT_ASPECT"] == "16:10" &&
+                      !shapePreview.Text.Contains("Old method"), "A taller shape reaches GT7 and is not the old method");
+                // FEAT-RT-051: Native on a 16:10 window is a 1920 x 1200 scene in GT7 too, and the page says it.
+                string wideWindow7 = File.ReadAllText(game.ConfigPath(root));
+                Check(wideWindow7.Contains("\"screen_stretch\":true") && wideWindow7.Contains("\"screen_aspect\":\"16:10\""),
+                      "The GT7 test profile is on 16:10, Stretched here");
+                string tall7 = System.Text.RegularExpressions.Regex.Replace(
+                    System.Text.RegularExpressions.Regex.Replace(wideWindow7, "\"window_width\":\\d+", "\"window_width\":1920"),
+                    "\"window_height\":\\d+", "\"window_height\":1200").Replace("\"screen_stretch\":true", "\"screen_stretch\":false");
+                File.WriteAllText(game.ConfigPath(root), tall7);
+                // Only with a renderer that renders GT7's menus at 16:9 inside the taller scene
+                // (FEAT-SGT-243, RYGT_GT7_TALL_MENUS): without it the launch keeps the 16:9 scene.
+                string fakeRenderer7 = Path.Combine(root, SwitchWalker.RendererFile);
+                Check(!File.Exists(fakeRenderer7), "The GT7 test folder has no renderer of its own");
+                var olderRenderer = configured(null);
+                Check(olderRenderer.EnvironmentVariables["SHADGT_ASPECT"] == "1920:1200" && olderRenderer.EnvironmentVariables["RYGT_ASPECT"] == "1920:1200" &&
+                      olderRenderer.EnvironmentVariables["SHADGT_PATCH"] == null,
+                      "Native on a 16:10 window keeps GT7's 16:9 scene on a renderer without the taller menus");
+                Directory.CreateDirectory(Path.GetDirectoryName(fakeRenderer7));
+                File.WriteAllBytes(fakeRenderer7, System.Text.Encoding.ASCII.GetBytes("RYGT_GT7_TALL_MENUS\0"));
+                try {
+                    using (var tallForm = new LoaderForm(game.Kind, root)) {
+                        var tallScene = (System.Windows.Forms.ComboBox)tallForm.Controls.Find("SceneResolution", true).Single();
+                        var tallPicture = (System.Windows.Forms.ComboBox)tallForm.Controls.Find("WidePicture", true).Single();
+                        var tallPreview = tallForm.Controls.Find("ScenePreview", true).Single();
+                        Check((string)tallScene.SelectedItem == "1920 x 1200" && tallPicture.SelectedIndex == 0 &&
+                              tallPreview.Text.Contains("Rendered at 1920 × 1200  →  Window 1920 × 1200") && !tallPreview.Text.Contains("16:9 picture"),
+                              "Native on a 16:10 window is a 1920 x 1200 scene in GT7");
+                        tallPicture.SelectedIndex = 1;
+                        Check((string)tallScene.SelectedItem == "Game default" && tallPreview.Text.Contains("from the 16:9 picture"),
+                              "Stretched on a 16:10 window keeps GT7's 16:9 scene");
+                    }
+                } finally { File.Delete(fakeRenderer7); }
+                File.WriteAllText(game.ConfigPath(root), wideWindow7);
+            }
+            shape.SelectedIndex = 0;
+            Check(File.ReadAllText(game.ConfigPath(root)).Contains("\"screen_aspect\":\"16:9\"") &&
+                  configured(null).EnvironmentVariables["SHADGT_ASPECT"] == "16:9", "Back to 16:9");
             scene.SelectedItem = "2560 x 1440";
             var config = File.ReadAllText(game.ConfigPath(root));
             Check(config.Contains("2560x1440"), "Scene preset persisted for " + game.TitleId);
@@ -221,22 +433,36 @@ namespace RyGT
             Check(scene.Enabled && preview.Text.Contains("2560 × 1440") && preview.Text.Contains("centered"),
                   "Fixed 16:9 remains centered on a wide output");
             pro.SelectedIndex = 0;
-            scene.SelectedItem = "3440 x 1440";
-            Check(preview.Text.Contains("Rendered at 3440 × 1440"), "Exact ultrawide render size");
+            // FIX-RT-052: ultrawide sizes are not lines of the list any more: Screen shape gives them,
+            // and each line shows the size really rendered.
+            Check(!scene.Items.Contains("3440 x 1440") && !scene.Items.Contains("5120 x 1440") && scene.Items.Contains("3840 x 2160"),
+                  "At a 16:9 shape the list holds 16:9 sizes");
+            widePicture.SelectedIndex = 0;
+            shape.SelectedIndex = 1;
+            Check((string)scene.SelectedItem == "3440 x 1440" && preview.Text.Contains("Rendered at 3440 × 1440") &&
+                  File.ReadAllText(game.ConfigPath(root)).Contains("\"native_resolution\":\"2560x1440\""),
+                  "Exact ultrawide render size, from the screen's shape");
+            shape.SelectedItem = "21:9";
             output.SelectedItem = "5120 x 1440";
             Check(preview.Text.Contains("same aspect ratio"), "Warn before presenting a different wide aspect");
-            scene.SelectedItem = "5120 x 1440";
-            Check(preview.Text.Contains("Rendered at 5120 × 1440"), "32:9 at 1440p");
-            scene.SelectedItem = "3840 x 1080";
-            Check(preview.Text.Contains("Rendered at 3840 × 1080  →  Window 5120 × 1440"), "32:9 at 1080p in a larger window");
+            shape.SelectedIndex = 1;
+            Check((string)scene.SelectedItem == "5120 x 1440" && preview.Text.Contains("Rendered at 5120 × 1440"), "32:9 at 1440p");
+            scene.SelectedIndex = 0;
+            Check((string)scene.SelectedItem == "3840 x 1080" &&
+                  preview.Text.Contains("Rendered at 3840 × 1080  →  Window 5120 × 1440"), "32:9 at 1080p in a larger window");
             var stored = File.ReadAllText(game.ConfigPath(root));
-            Check(stored.Contains("3840x1080") && (!gts || stored.Contains("\"wide_scene_height\":1080")), "Exact wide preset reaches the game profile");
-            // Reopen a custom size absent from the built-in presets and its monitor modes.
-            File.WriteAllText(game.ConfigPath(root), stored.Replace("3840x1080", "4096x1152"));
+            Check(stored.Contains("\"native_resolution\":\"game\"") && (!gts || stored.Contains("\"wide_scene_height\":1080")),
+                  "The wide scene reaches the game profile");
+            // A size of another shape saved by an older launcher, or typed in Custom, stays as it is.
+            File.WriteAllText(game.ConfigPath(root), stored.Replace("\"native_resolution\":\"game\"", "\"native_resolution\":\"4096x1152\""));
             using (var reopened = new LoaderForm(game.Kind, root)) {
                 var selected = (System.Windows.Forms.ComboBox)reopened.Controls.Find("SceneResolution", true).Single();
-                Check((string)selected.SelectedItem == "4096 x 1152", "Custom ultrawide selection survives reopening");
+                Check((string)selected.SelectedItem == "4096 x 1152 (fixed shape)" &&
+                      reopened.Controls.Find("ScenePreview", true).Single().Text.Contains("Rendered at 4096 × 1152"),
+                      "A saved ultrawide size survives reopening");
             }
+            File.WriteAllText(game.ConfigPath(root), stored);
+            shape.SelectedIndex = 0;
             scene.SelectedItem = "2560 x 1440";
             Check(preview.Text.Contains("centered"), "Switching back to a standard render size restores 16:9");
             scene.SelectedIndex = 0;
@@ -244,8 +470,32 @@ namespace RyGT
             method.SelectedItem = "NVIDIA DLSS";
             Check((string)method.SelectedItem == "NVIDIA DLSS" && guide.Text.Contains(gts ? "Start with Quality" : "Auto (window size)"),
                   "DLSS guidance matches this game's quality settings");
+            // FIX-RT-048: the preview announces what Play refuses, with upscaling as it is saved now.
+            scene.SelectedItem = "2560 x 1440";
+            Check(preview.Text.Contains("Turn off upscaling") && !preview.Text.Contains("Rendered at"),
+                  "A fixed render resolution with DLSS on is refused before Play, " + game.TitleId);
+            scene.SelectedIndex = 0;
+            Check(preview.Text.Contains("Game default render resolution"), "Game default goes with DLSS");
             method.SelectedItem = "Off";
             Check(guide.Text.Contains("native 4K"), "Upscaling Off explains native 4K");
+            scene.SelectedItem = "2560 x 1440";
+            Check(preview.Text.Contains("Rendered at 2560 × 1440"), "Without upscaling the fixed size is accepted");
+            // Upscaling chosen afterwards, on the Graphics page: the Display page says so when it is shown again.
+            method.SelectedItem = "NVIDIA DLSS";
+            form.ShowSettings("Display", false);
+            Check(preview.Text.Contains("Turn off upscaling"), "The preview follows upscaling turned on later");
+            // A DLSS flag left on without the DLSS files upscales nothing and is shown as off: not refused.
+            Func<string, object> flagOn = k => k == "dlss_enabled" || k == "fsr_enabled" ? (object)(k == "dlss_enabled") : null;
+            string noDlss = Path.Combine(Path.GetTempPath(), "RyGT-no-dlss-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(noDlss);
+            try {
+                Check(Equals(LoaderForm.ShownUpscaling(root, game.Kind, flagOn)("dlss_enabled"), true) &&
+                      Equals(LoaderForm.ShownUpscaling(noDlss, game.Kind, flagOn)("dlss_enabled"), false) &&
+                      Equals(LoaderForm.ShownUpscaling(noDlss, game.Kind, flagOn)("fsr_enabled"), false),
+                      "DLSS counts as upscaling only with its files, " + game.TitleId);
+            } finally { Directory.Delete(noDlss, true); }
+            method.SelectedItem = "Off";
+            scene.SelectedIndex = 0;
         }
 
         static void FormChecks(string root)
