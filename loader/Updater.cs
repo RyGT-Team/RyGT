@@ -22,10 +22,15 @@ namespace RyGT
     /// A build the launcher can update to.
     class ReleaseInfo
     {
-        /// "2026-11-10" for a release, "ci-1a2b3c4d" for a nightly.
+        /// "2026-11-10" for a release, "ci-1a2b3c4d" for a nightly (FIX-RT-044: "ci-1a2b3c4d+5e6f7a8b", with
+        /// the renderer's commit after the "+").
         public string Version, Tag, Name, Notes, ZipName, ZipUrl, Sha256;
         /// FIX-GTS-286: the commit the build is from (a nightly's run, a release's tag), or null.
         public string Commit;
+        /// FIX-RT-044: a nightly's renderer (shadGT) commit, from its artifact's name; null for a release.
+        public string RendererCommit;
+        /// FIX-RT-044: when a nightly's run started (UTC, ISO 8601); null for a release.
+        public string Built;
         /// A nightly: the download is a GitHub Actions artifact (a zip holding the package zip and
         /// its .sha256), which also gives the checksum.
         public bool Artifact;
@@ -76,10 +81,16 @@ namespace RyGT
     {
         // ---- Where the releases are.
         const string Repository = "RyGT-Team/RyGT", Workflow = "ci-package-release.yml", Branch = "development";
-        const string ArtifactPrefix = "ci-", NightlyPrefix = "RyGT-ci-"; // FIX-RT-015: RyGTS-ci- before
+        // FIX-RT-044: renderer changes are packaged by shadGT's own runs (its ci-package.yml calls RyGT's
+        // package workflow for each ryty-gpu push), which RyGT's run list doesn't show. The nightly is the
+        // newer of the two.
+        const string RendererRepository = "RyGT-Team/shadGT", RendererWorkflow = "ci-package.yml", RendererBranch = "ryty-gpu";
+        const string NightlyPrefix = "RyGT-ci-"; // FIX-RT-015: RyGTS-ci- before
+        // The package artifact both repositories' runs upload: ci-<RyGT commit>-renderer-<shadGT commit>.
+        static readonly Regex NightlyArtifact = new Regex("^ci-([0-9a-f]{40})-renderer-([0-9a-f]{40})$");
         // FIX-GTS-286: the release tags ("gt-sport-2026-11-15") and package zips ("GTSport-Ryty-shadGT-2026-11-15.zip")
-        // as they are published.
-        static readonly string[] TagPrefixes = { "gt-sport-", "gts-" }, PackagePrefixes = { "GTSport-", "RyGTS-", "RyGT-" };
+        // as they are published. FIX-RT-044: RyGT's releases are tagged rygt-<date> ("rygt-2026-11-23").
+        static readonly string[] TagPrefixes = { "rygt-", "gt-sport-", "gts-" }, PackagePrefixes = { "GTSport-", "RyGTS-", "RyGT-" };
         const string Product = "RyGT"; // FIX-RT-015: packages are RyGT-<version> (RyGTS-<version> before)
         // FEAT-GTS-291: the launcher started after an update (RyGTS.exe and ryGT7's RyGT7.exe before it).
         public const string LauncherExe = "RyGTLauncher.exe";
@@ -127,11 +138,20 @@ namespace RyGT
                         string.Equals(recorded as string, identity, StringComparison.OrdinalIgnoreCase) && version is string)
                         return (string)version;
                 }
-                if (identity.StartsWith("commit:")) return "ci-" + identity.Substring(7, 8);
+                if (identity.StartsWith("commit:")) return WithRenderer("ci-" + identity.Substring(7, 8), root);
                 var match = Regex.Match(identity, "^" + Regex.Escape(Product) + @"S?-(.+?)(-prerelease)?$"); // RyGT- or the older RyGTS-
-                return match.Success ? match.Groups[1].Value : null;
+                return match.Success ? WithRenderer(match.Groups[1].Value, root) : null;
             }
             catch { return null; }
+        }
+
+        /// FIX-RT-044: a nightly's version names its renderer too ("ci-1a2b3c4d+5e6f7a8b"), so builds of one
+        /// RyGT commit with different renderers are told apart.
+        static string WithRenderer(string version, string root)
+        {
+            if (!version.StartsWith("ci-") || version.Contains("+")) return version;
+            string renderer = BuildRendererCommit(root);
+            return renderer == null ? version : version + "+" + renderer.Substring(0, 8);
         }
 
         /// The folder's release as shown to the player: the installed version, else the version in another
@@ -184,11 +204,33 @@ namespace RyGT
             catch { return null; }
         }
 
-        /// A version as shown to the player: a nightly ("ci-1a2b3c4d") as "nightly 1a2b3c4d".
+        /// FIX-RT-044: BUILD_INFO.txt's renderer commit: the second line of renderer_source
+        /// ("https://github.com/RyGT-Team/shadGT.git\n<commit>"), or null.
+        static string BuildRendererCommit(string root)
+        {
+            try
+            {
+                string path = Path.Combine(root, "BUILD_INFO.txt");
+                if (!File.Exists(path)) return null;
+                var info = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(path)) as Dictionary<string, object>;
+                object source;
+                if (info == null || !info.TryGetValue("renderer_source", out source)) return null;
+                string[] lines = (source as string ?? "").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                string text = lines.Length == 2 ? lines[1].Trim() : "";
+                return Regex.IsMatch(text, "^[0-9a-f]{40}$") ? text : null;
+            }
+            catch { return null; }
+        }
+
+        /// A version as shown to the player: a nightly ("ci-1a2b3c4d") as "nightly 1a2b3c4d", and
+        /// FIX-RT-044 "ci-1a2b3c4d+5e6f7a8b" as "nightly 1a2b3c4d, renderer 5e6f7a8b".
         public static string Display(string version)
         {
             if (version == null) return "";
-            return version.StartsWith("ci-") ? "nightly " + version.Substring(3) : version;
+            if (!version.StartsWith("ci-")) return version;
+            int plus = version.IndexOf('+');
+            return plus < 0 ? "nightly " + version.Substring(3)
+                            : "nightly " + version.Substring(3, plus - 3) + ", renderer " + version.Substring(plus + 1);
         }
 
         /// Releases are dates with an optional letter for a hotfix (2026-10-27b), so they sort as
@@ -200,10 +242,20 @@ namespace RyGT
         {
             if (candidate == null) return false;
             string commit = BuildCommit(root);
-            if (commit != null && !string.IsNullOrEmpty(candidate.Commit) &&
-                (candidate.Commit.StartsWith(commit, StringComparison.OrdinalIgnoreCase) || commit.StartsWith(candidate.Commit, StringComparison.OrdinalIgnoreCase)))
-                return false;
+            if (commit != null && !string.IsNullOrEmpty(candidate.Commit) && SameCommit(candidate.Commit, commit))
+            {
+                // FIX-RT-044: the same RyGT commit with another renderer is a newer build (a renderer change
+                // packaged by shadGT's run); with the same renderer, or one not known, it is this build.
+                string renderer = BuildRendererCommit(root);
+                return renderer != null && !string.IsNullOrEmpty(candidate.RendererCommit) && !SameCommit(candidate.RendererCommit, renderer);
+            }
             return IsNewer(candidate.Version, installed);
+        }
+
+        /// Two commits, either one possibly shortened.
+        static bool SameCommit(string a, string b)
+        {
+            return a.StartsWith(b, StringComparison.OrdinalIgnoreCase) || b.StartsWith(a, StringComparison.OrdinalIgnoreCase);
         }
 
         public static bool IsNewer(string candidate, string installed)
@@ -251,7 +303,7 @@ namespace RyGT
                 string tag = release["tag_name"] as string ?? "";
                 var info = new ReleaseInfo
                 {
-                    Tag = tag, Version = WithoutPrefix(tag, TagPrefixes), Prerelease = pre,
+                    Tag = tag, Version = TagVersion(tag), Prerelease = pre,
                     Name = release["name"] as string ?? tag, Notes = release["body"] as string ?? ""
                 };
                 string shaUrl = null;
@@ -291,36 +343,62 @@ namespace RyGT
             return null;
         }
 
-        /// The newest successful CI build on the branch with a package artifact that has not expired.
+        /// The newest successful CI build with a package artifact that has not expired. FIX-RT-044: from
+        /// RyGT's runs (a push to development) and shadGT's (a push to ryty-gpu), whichever was built last.
         static ReleaseInfo LatestNightly()
         {
-            var runs = Json("https://api.github.com/repos/" + Repository + "/actions/workflows/" + Workflow +
-                            "/runs?branch=" + Branch + "&status=success&per_page=5") as Dictionary<string, object>;
+            ReleaseInfo runtime = null, renderer = null;
+            Exception failed = null;
+            try { runtime = LatestNightly(Repository, Workflow, Branch, false); }
+            catch (Exception e) { failed = e; }
+            try { renderer = LatestNightly(RendererRepository, RendererWorkflow, RendererBranch, true); }
+            catch (Exception e) { failed = failed ?? e; }
+            if (runtime == null && renderer == null && failed != null) throw failed;
+            if (runtime == null || renderer == null) return runtime ?? renderer;
+            // Run times are UTC in ISO 8601, so they sort as text.
+            return string.CompareOrdinal(renderer.Built, runtime.Built) > 0 ? renderer : runtime;
+        }
+
+        /// The newest of one repository's package runs. Its runs are for that repository's commit: RyGT's
+        /// artifact names the run's commit first, shadGT's names it as the renderer.
+        static ReleaseInfo LatestNightly(string repository, string workflow, string branch, bool rendererRuns)
+        {
+            var runs = Json("https://api.github.com/repos/" + repository + "/actions/workflows/" + workflow +
+                            "/runs?branch=" + branch + "&status=success&per_page=5") as Dictionary<string, object>;
             object list;
             if (runs == null || !runs.TryGetValue("workflow_runs", out list)) return null;
             foreach (Dictionary<string, object> run in ((object[])list).OfType<Dictionary<string, object>>())
             {
-                string id = Convert.ToString(run["id"]), sha = run["head_sha"] as string ?? "";
-                if (sha.Length < 8) continue;
-                var artifacts = Json("https://api.github.com/repos/" + Repository + "/actions/runs/" + id + "/artifacts") as Dictionary<string, object>;
+                string id = Convert.ToString(run["id"]), head = run["head_sha"] as string ?? "";
+                if (head.Length < 8) continue;
+                var artifacts = Json("https://api.github.com/repos/" + repository + "/actions/runs/" + id + "/artifacts") as Dictionary<string, object>;
                 object items;
                 if (artifacts == null || !artifacts.TryGetValue("artifacts", out items)) continue;
                 foreach (Dictionary<string, object> artifact in ((object[])items).OfType<Dictionary<string, object>>())
                 {
                     string name = artifact["name"] as string ?? "";
-                    if (!name.StartsWith(ArtifactPrefix + sha, StringComparison.Ordinal) || true.Equals(artifact["expired"])) continue;
-                    string when = (run["created_at"] as string ?? "").Replace('T', ' ').TrimEnd('Z');
+                    var parts = NightlyArtifact.Match(name);
+                    if (!parts.Success || true.Equals(artifact["expired"])) continue;
+                    string sha = parts.Groups[1].Value, rendererSha = parts.Groups[2].Value;
+                    if ((rendererRuns ? rendererSha : sha) != head) continue;
+                    string created = run["created_at"] as string ?? "", when = created.Replace('T', ' ').TrimEnd('Z');
+                    string version = "ci-" + sha.Substring(0, 8) + "+" + rendererSha.Substring(0, 8);
                     return new ReleaseInfo
                     {
-                        Artifact = true, Version = "ci-" + sha.Substring(0, 8), Tag = sha, Commit = sha, Name = "RyGT nightly " + sha.Substring(0, 8),
-                        Notes = "Built " + (when.Length >= 16 ? when.Substring(0, 16) + " UTC" : when) + " from " + Branch + ".",
+                        Artifact = true, Version = version, Tag = sha, Built = created, Commit = sha, RendererCommit = rendererSha,
+                        Name = "RyGT " + Display(version),
+                        Notes = "Built " + (when.Length >= 16 ? when.Substring(0, 16) + " UTC" : when) + " from " +
+                                (rendererRuns ? "shadGT " + branch : branch) + " (RyGT " + sha.Substring(0, 8) + ", renderer " + rendererSha.Substring(0, 8) + ").",
                         ZipName = NightlyPrefix + sha.Substring(0, 8) + ".zip",
-                        ZipUrl = "https://nightly.link/" + Repository + "/actions/runs/" + id + "/" + name + ".zip"
+                        ZipUrl = "https://nightly.link/" + repository + "/actions/runs/" + id + "/" + name + ".zip"
                     };
                 }
             }
             return null;
         }
+
+        /// A release's version: its tag without the prefix ("rygt-2026-11-23" is "2026-11-23").
+        public static string TagVersion(string tag) { return WithoutPrefix(tag, TagPrefixes); }
 
         static string WithoutPrefix(string tag, string[] prefixes)
         {

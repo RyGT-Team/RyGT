@@ -329,6 +329,22 @@ namespace RyGT
             Check(Updater.PackageIsFor(gtsPackage, GameInfo.GTSport.TitleId) && !Updater.PackageIsFor(gtsPackage, GameInfo.GT7.TitleId), "GT Sport's package is GT Sport's");
             Check(Updater.PackageIsFor(gt7Package, GameInfo.GT7.TitleId) && !Updater.PackageIsFor(gt7Package, GameInfo.GTSport.TitleId), "GT7's package is GT7's");
             Check(Updater.PackageIsFor(gtsPackage.Concat(gt7Package), GameInfo.GT7.TitleId), "A package for both games updates either");
+            // FIX-RT-044: rygt- release tags, and nightlies told apart by their renderer too.
+            Check(Updater.TagVersion("rygt-2026-11-23") == "2026-11-23" && Updater.TagVersion("gt-sport-2026-11-16") == "2026-11-16", "Release tags read as dates");
+            string rygt = new string('a', 40), shadgt = new string('b', 40), newer = new string('c', 40);
+            string nightly = Path.Combine(folder, "nightly-check");
+            Directory.CreateDirectory(nightly);
+            Put(Path.Combine(nightly, "BUILD_INFO.txt"), "{\"commit\": \"" + rygt + "\", \"renderer_source\": \"https://github.com/RyGT-Team/shadGT.git\n" + shadgt + "\"}");
+            string installed = Updater.InstalledVersion(nightly);
+            Check(installed == "ci-aaaaaaaa+bbbbbbbb", "An installed nightly names its renderer: " + installed);
+            Check(Updater.Display(installed) == "nightly aaaaaaaa, renderer bbbbbbbb" && Updater.Display("ci-aaaaaaaa") == "nightly aaaaaaaa", "Nightlies are shown with their renderer");
+            var same = new ReleaseInfo { Artifact = true, Version = "ci-aaaaaaaa+bbbbbbbb", Commit = rygt, RendererCommit = shadgt };
+            var renderer = new ReleaseInfo { Artifact = true, Version = "ci-aaaaaaaa+cccccccc", Commit = rygt, RendererCommit = newer };
+            var release = new ReleaseInfo { Version = "2026-11-23", Commit = rygt };
+            Check(!Updater.IsNewer(same, installed, nightly), "The same build is not offered again");
+            Check(Updater.IsNewer(renderer, installed, nightly), "A newer renderer on the same RyGT commit is offered");
+            Check(!Updater.IsNewer(release, installed, nightly), "A release of the same RyGT commit is not offered");
+            Check(Updater.IsNewer(renderer, "ci-aaaaaaaa", nightly), "An installed version recorded before FIX-RT-044 still compares by renderer");
         }
 
         static void Put(string path, string text)
