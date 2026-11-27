@@ -345,6 +345,12 @@ namespace RyGT
             Check(Updater.IsNewer(renderer, installed, nightly), "A newer renderer on the same RyGT commit is offered");
             Check(!Updater.IsNewer(release, installed, nightly), "A release of the same RyGT commit is not offered");
             Check(Updater.IsNewer(renderer, "ci-aaaaaaaa", nightly), "An installed version recorded before FIX-RT-044 still compares by renderer");
+            // FEAT-RT-045: a nightly's changelog is its commit description as bullets.
+            var run = new Dictionary<string, object> { { "head_commit", new Dictionary<string, object> { { "message",
+                "Merge pull request #151 from RyGT-Team/feat/x\n\nFEAT-SGT-189: GT7 DLSS below\nthe output\n\n- one\n- two\n  wrapped\n\nCo-Authored-By: A <a@b>" } } } };
+            string nightlyNotes = Updater.CommitNotes(run, "fallback");
+            Check(nightlyNotes == "- FEAT-SGT-189: GT7 DLSS below the output\n- one\n- two wrapped", "Nightly notes are the commit description as bullets: " + nightlyNotes);
+            Check(Updater.CommitNotes(new Dictionary<string, object>(), "fallback") == "fallback", "Nightly notes fall back without a message");
         }
 
         static void Put(string path, string text)

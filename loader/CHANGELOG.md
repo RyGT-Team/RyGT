@@ -12,6 +12,8 @@ CI fails when the two disagree.
   (each push to ryty-gpu builds one), and a nightly's version names its renderer too
   ("nightly 1a2b3c4d, renderer 5e6f7a8b"), so a build of the same RyGT commit with a newer renderer is offered.
   Releases tagged `rygt-<date>` are read as their date, like `gt-sport-<date>` ones.
+* FEAT-RT-045: a nightly's changelog is its commit description, as a bulleted list (without the
+  "Merge pull request" line and the trailers), instead of when and where it was built.
 
 ## 0.3.24 - 2026-11-26
 

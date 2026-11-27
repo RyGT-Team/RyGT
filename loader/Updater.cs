@@ -387,14 +387,40 @@ namespace RyGT
                     {
                         Artifact = true, Version = version, Tag = sha, Built = created, Commit = sha, RendererCommit = rendererSha,
                         Name = "RyGT " + Display(version),
-                        Notes = "Built " + (when.Length >= 16 ? when.Substring(0, 16) + " UTC" : when) + " from " +
-                                (rendererRuns ? "shadGT " + branch : branch) + " (RyGT " + sha.Substring(0, 8) + ", renderer " + rendererSha.Substring(0, 8) + ").",
+                        Notes = CommitNotes(run, "Built " + (when.Length >= 16 ? when.Substring(0, 16) + " UTC" : when) + " from " +
+                                (rendererRuns ? "shadGT " + branch : branch) + " (RyGT " + sha.Substring(0, 8) + ", renderer " + rendererSha.Substring(0, 8) + ")."),
                         ZipName = NightlyPrefix + sha.Substring(0, 8) + ".zip",
                         ZipUrl = "https://nightly.link/" + repository + "/actions/runs/" + id + "/" + name + ".zip"
                     };
                 }
             }
             return null;
+        }
+
+        /// FEAT-RT-045: a nightly's changelog is its commit's description as a bulleted list: each paragraph
+        /// (or bullet) of the run's head commit message, without the "Merge pull request" line and the
+        /// trailers. The fallback when the run gives no message.
+        public static string CommitNotes(Dictionary<string, object> run, string fallback)
+        {
+            var commit = run.ContainsKey("head_commit") ? run["head_commit"] as Dictionary<string, object> : null;
+            string message = commit != null && commit.ContainsKey("message") ? commit["message"] as string ?? "" : "";
+            var bullets = new List<string>();
+            foreach (string paragraph in Regex.Split(message.Replace("\r", ""), @"\n\s*\n"))
+            {
+                var lines = paragraph.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 &&
+                    !l.StartsWith("Merge pull request #", StringComparison.Ordinal) &&
+                    !Regex.IsMatch(l, @"^(Co-Authored-By|Signed-off-by):", RegexOptions.IgnoreCase)).ToList();
+                if (lines.Count == 0) continue;
+                if (lines.Any(l => l.StartsWith("- ") || l.StartsWith("* ")))
+                {
+                    // Bullets stay bullets; a wrapped bullet's lines join it.
+                    foreach (string line in lines)
+                        if (line.StartsWith("- ") || line.StartsWith("* ") || bullets.Count == 0) bullets.Add(line.TrimStart('-', '*', ' '));
+                        else bullets[bullets.Count - 1] += " " + line;
+                }
+                else bullets.Add(string.Join(" ", lines));
+            }
+            return bullets.Count == 0 ? fallback : string.Join("\n", bullets.Select(b => "- " + b));
         }
 
         /// A release's version: its tag without the prefix ("rygt-2026-11-23" is "2026-11-23").
