@@ -4020,7 +4020,9 @@ namespace RyGT
                     effective.Text += " Old method: the game's 16:9 picture is stretched over the " + place +
                                       (gts ? ", menus kept 16:9 and the race HUD unstretched" : "") +
                                       ": fewer pixels to draw, less sharp the wider the " + place + ".";
-                else if (plan.Kind == "taller")
+                if (plan.NativeMissing && plan.Kind.StartsWith("taller"))
+                    effective.Text += " This renderer has no native scene taller than 16:9, so Native does not apply here.";
+                if (plan.Kind == "taller")
                     effective.Text += " The race view fits the taller " + place + " from the 16:9 picture; menus stay 16:9.";
                 else if (plan.Kind == "taller-ui")
                     effective.Text += " The race view fits the taller " + place +

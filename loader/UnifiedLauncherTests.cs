@@ -330,6 +330,26 @@ namespace RyGT
                 var taller = configured(null);
                 Check(taller.EnvironmentVariables["SHADGT_ASPECT"] == "16:10" && taller.EnvironmentVariables["RYGT_ASPECT"] == "16:10" &&
                       !shapePreview.Text.Contains("Old method"), "A taller shape reaches GT7 and is not the old method");
+                // FEAT-RT-051: Native on a 16:10 window is a 1920 x 1200 scene in GT7 too, and the page says it.
+                string wideWindow7 = File.ReadAllText(game.ConfigPath(root));
+                Check(wideWindow7.Contains("\"screen_stretch\":true") && wideWindow7.Contains("\"screen_aspect\":\"16:10\""),
+                      "The GT7 test profile is on 16:10, Stretched here");
+                string tall7 = System.Text.RegularExpressions.Regex.Replace(
+                    System.Text.RegularExpressions.Regex.Replace(wideWindow7, "\"window_width\":\\d+", "\"window_width\":1920"),
+                    "\"window_height\":\\d+", "\"window_height\":1200").Replace("\"screen_stretch\":true", "\"screen_stretch\":false");
+                File.WriteAllText(game.ConfigPath(root), tall7);
+                using (var tallForm = new LoaderForm(game.Kind, root)) {
+                    var tallScene = (System.Windows.Forms.ComboBox)tallForm.Controls.Find("SceneResolution", true).Single();
+                    var tallPicture = (System.Windows.Forms.ComboBox)tallForm.Controls.Find("WidePicture", true).Single();
+                    var tallPreview = tallForm.Controls.Find("ScenePreview", true).Single();
+                    Check((string)tallScene.SelectedItem == "1920 x 1200" && tallPicture.SelectedIndex == 0 &&
+                          tallPreview.Text.Contains("Rendered at 1920 × 1200  →  Window 1920 × 1200") && !tallPreview.Text.Contains("16:9 picture"),
+                          "Native on a 16:10 window is a 1920 x 1200 scene in GT7");
+                    tallPicture.SelectedIndex = 1;
+                    Check((string)tallScene.SelectedItem == "Game default" && tallPreview.Text.Contains("from the 16:9 picture"),
+                          "Stretched on a 16:10 window keeps GT7's 16:9 scene");
+                }
+                File.WriteAllText(game.ConfigPath(root), wideWindow7);
             }
             shape.SelectedIndex = 0;
             Check(File.ReadAllText(game.ConfigPath(root)).Contains("\"screen_aspect\":\"16:9\"") &&
