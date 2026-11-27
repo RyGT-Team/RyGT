@@ -3614,14 +3614,8 @@ namespace RyGT
                 if (camera != null && presenter != null && camera != presenter)
                     throw new InvalidOperationException("Use the same aspect for RYGT_ASPECT and SHADGT_ASPECT in Advanced.");
                 // FEAT-RT-042: the Display page's screen shape, unless Advanced sets one.
-                string shape = setting("screen_aspect") as string;
-                if (shape == "auto") {
-                    // The shape of the output the game opens (the same size the render resolution
-                    // uses), passed as a number so the runtime and the renderer agree on it.
-                    Size output = OutputSize(setting);
-                    shape = output.Width + ":" + output.Height;
-                }
-                if (!RenderResolution.MatchOutputShape(shape)) shape = "16:9";
+                string saved = setting("screen_aspect") as string;
+                string shape = RenderResolution.ScreenShape(saved, saved == "auto" ? OutputSize(setting) : Size.Empty);
                 env["RYGT_ASPECT"] = env["SHADGT_ASPECT"] = camera ?? presenter ?? shape;
             } else if (env["SHADGT_ASPECT"] == null) {
                 env["SHADGT_ASPECT"] = "16:9";
