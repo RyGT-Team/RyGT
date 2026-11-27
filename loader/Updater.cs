@@ -391,7 +391,7 @@ namespace RyGT
                     {
                         Artifact = true, Version = version, Tag = sha, Built = created, Commit = sha, RendererCommit = rendererSha,
                         Name = "RyGT " + Display(version),
-                        Notes = CommitNotes(run, "Built " + (when.Length >= 16 ? when.Substring(0, 16) + " UTC" : when) + " from " +
+                        Notes = CommitNotes(run, rendererRuns, "Built " + (when.Length >= 16 ? when.Substring(0, 16) + " UTC" : when) + " from " +
                                 (rendererRuns ? "shadGT " + branch : branch) + " (RyGT " + sha.Substring(0, 8) + ", renderer " + rendererSha.Substring(0, 8) + ")."),
                         ZipName = NightlyPrefix + sha.Substring(0, 8) + ".zip",
                         ZipUrl = "https://nightly.link/" + repository + "/actions/runs/" + id + "/" + name + ".zip"
@@ -404,15 +404,16 @@ namespace RyGT
         /// FEAT-RT-045: a nightly's changelog is a list of commits, one bullet each: the commit's title and
         /// its author's name in parentheses ("- GS/HW: fix page widths (refraction)"). Without the commits
         /// since the installed build (ChangesSince), the run's own commit; the fallback without one.
-        public static string CommitNotes(Dictionary<string, object> run, string fallback)
+        /// Under the heading of the repository the run is in (a shadGT run's commit is a renderer change).
+        public static string CommitNotes(Dictionary<string, object> run, bool rendererRun, string fallback)
         {
             var commit = run.ContainsKey("head_commit") ? run["head_commit"] as Dictionary<string, object> : null;
             string line = commit == null ? null : CommitLine(commit);
-            return line == null ? fallback : ChangesHeading + "\n- " + line;
+            return line == null ? fallback : (rendererRun ? RendererHeading : RuntimeHeading) + "\n- " + line;
         }
 
-        /// The heading above a nightly's commits in the Changelog window.
-        const string ChangesHeading = "## Changes:";
+        /// The headings above a nightly's commits in the Changelog window: shadGT's, then RyGT's.
+        const string RendererHeading = "## Renderer changes:", RuntimeHeading = "## Runtime changes:";
 
         /// "title *(author)*" for a commit object (GitHub's head_commit, or a commits list entry's "commit"):
         /// a merge's title is its pull request's title (the line after "Merge pull request #..."). The
@@ -434,7 +435,8 @@ namespace RyGT
         }
 
         /// FEAT-RT-045: a newer nightly's notes become every commit since the installed build, newest first,
-        /// in RyGT and then in the renderer (two GitHub compare requests), as the commits the update brings.
+        /// the renderer's under one heading and RyGT's (the runtime and launcher) under another (two GitHub
+        /// compare requests), as the commits the update brings.
         /// Merge commits are left out: their pull requests' commits are listed. The notes stay as they are
         /// when the installed commits are not known or GitHub doesn't answer.
         public static void ChangesSince(ReleaseInfo release, string root)
@@ -444,10 +446,14 @@ namespace RyGT
             {
                 // Each repository on its own: one GitHub can't compare (a build from an unknown commit,
                 // such as a local one) still leaves the other's list.
-                var lines = new List<string>();
-                try { lines.AddRange(CompareLines(Repository, BuildCommit(root), release.Commit)); } catch { }
-                try { lines.AddRange(CompareLines(RendererRepository, BuildRendererCommit(root), release.RendererCommit)); } catch { }
-                if (lines.Count > 0) release.Notes = ChangesHeading + "\n" + string.Join("\n", lines.Select(l => "- " + l));
+                var renderer = new List<string>();
+                var runtime = new List<string>();
+                try { renderer = CompareLines(RendererRepository, BuildRendererCommit(root), release.RendererCommit); } catch { }
+                try { runtime = CompareLines(Repository, BuildCommit(root), release.Commit); } catch { }
+                var notes = new List<string>();
+                if (renderer.Count > 0) notes.Add(RendererHeading + "\n" + string.Join("\n", renderer.Select(l => "- " + l)));
+                if (runtime.Count > 0) notes.Add(RuntimeHeading + "\n" + string.Join("\n", runtime.Select(l => "- " + l)));
+                if (notes.Count > 0) release.Notes = string.Join("\n", notes);
             }
             catch { }
         }
@@ -486,7 +492,7 @@ namespace RyGT
                 if (line != null) lines.Add(line);
             }
             if (ahead > entries.Count)
-                lines.Add("... and " + (ahead - entries.Count) + " earlier commits in " + repository.Substring(repository.IndexOf('/') + 1));
+                lines.Add("... and " + (ahead - entries.Count) + " earlier commits");
             return lines;
         }
 

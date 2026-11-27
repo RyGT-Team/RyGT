@@ -12,9 +12,10 @@ CI fails when the two disagree.
   (each push to ryty-gpu builds one), and a nightly's version names its renderer too
   ("nightly 1a2b3c4d, renderer 5e6f7a8b"), so a build of the same RyGT commit with a newer renderer is offered.
   Releases tagged `rygt-<date>` are read as their date, like `gt-sport-<date>` ones.
-* FEAT-RT-045: a nightly's changelog lists the commits since the installed build, RyGT's and then the
-  renderer's, one bullet each with the author in parentheses ("GT7: ... (Will)"), instead of when and
-  where it was built. A merge shows its pull request's title.
+* FEAT-RT-045: a nightly's changelog lists the commits since the installed build, one bullet each with the
+  author in italics, under Renderer changes (shadGT) and Runtime changes (RyGT), instead of when and where it
+  was built. A merge shows its pull request's title. The installed renderer's commit is read from the
+  renderer itself, so a test renderer copied into the folder counts.
 
 ## 0.3.24 - 2026-11-26
 
