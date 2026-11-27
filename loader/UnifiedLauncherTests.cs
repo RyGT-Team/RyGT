@@ -223,6 +223,13 @@ namespace RyGT
                   "Match the window is saved as a native shape for " + game.TitleId);
             Check(shapePreview.Text.Contains("Rendered at 2576 × 1080  →  Window 3440 × 1440") && !shapePreview.Text.Contains("Old method"),
                   "Native: the scene takes the window's shape at the game's height, " + game.TitleId);
+            // FIX-RT-052: the Render resolution line says the size really rendered, not "Game default".
+            Check((string)scene.SelectedItem == "2576 x 1080" && scene.Items.Contains("3440 x 1440") &&
+                  !scene.Items.Contains("Game default") && !scene.Items.Contains("2560 x 1440") &&
+                  !scene.Items.Cast<string>().Any(line => line.Contains("default")),
+                  "The Render resolution list shows the sizes of the chosen shape, and calls none a default, " + game.TitleId);
+            Check(scene.Items.Cast<string>().Distinct().Count() == scene.Items.Count && scene.SelectedIndex == 0,
+                  "Two lines that render the same scene are shown once, " + game.TitleId);
             if (sport) {
                 // GT Sport's native wide scene needs no patch of the executable: the launch is whole here.
                 var native = configured(null);
@@ -236,13 +243,14 @@ namespace RyGT
                 var againScene = (System.Windows.Forms.ComboBox)again.Controls.Find("SceneResolution", true).Single();
                 var againShape = (System.Windows.Forms.ComboBox)again.Controls.Find("ScreenShape", true).Single();
                 var againPicture = (System.Windows.Forms.ComboBox)again.Controls.Find("WidePicture", true).Single();
-                Check((string)againScene.SelectedItem == "Game default" && (string)againShape.SelectedItem == "Match the window or display" &&
+                Check((string)againScene.SelectedItem == "2576 x 1080" && (string)againShape.SelectedItem == "Match the window or display" &&
                       againPicture.SelectedIndex == 0, "A native shape survives reopening as it was chosen, " + game.TitleId);
                 againPicture.SelectedIndex = 1;
                 string stretchedAgain = File.ReadAllText(game.ConfigPath(root));
                 Check(again.Controls.Find("ScenePreview", true).Single().Text.Contains("Old method") &&
                       stretchedAgain.Contains("\"screen_stretch\":true") && stretchedAgain.Contains("\"native_resolution\":\"game\"") &&
-                      (!sport || stretchedAgain.Contains("\"wide_scene\":false")),
+                      (!sport || stretchedAgain.Contains("\"wide_scene\":false")) &&
+                      (string)againScene.SelectedItem == "Game default",
                       "Stretched can be chosen after reopening, " + game.TitleId);
                 againPicture.SelectedIndex = 0;
             }
@@ -252,14 +260,15 @@ namespace RyGT
                       File.ReadAllText(game.ConfigPath(root)).Contains("\"native_resolution\":\"game\""),
                       "Play reads GT Sport's native shape back from the shape, not as a render resolution");
             }
-            scene.SelectedItem = "2560 x 1440";
+            scene.SelectedItem = "3440 x 1440";
             Check(shapePreview.Text.Contains("Rendered at 3440 × 1440  →  Window 3440 × 1440") &&
+                  File.ReadAllText(game.ConfigPath(root)).Contains("\"native_resolution\":\"2560x1440\"") &&
                   (!sport || File.ReadAllText(game.ConfigPath(root)).Contains("\"wide_scene_height\":1440")),
                   "Native: the render resolution gives the height, " + game.TitleId);
             scene.SelectedIndex = 0;
             widePicture.SelectedIndex = 1;
             matched = File.ReadAllText(game.ConfigPath(root));
-            Check(matched.Contains("\"screen_stretch\":true") && (!sport || (matched.Contains("\"wide_scene\":false") && matched.Contains("\"wide_scene_alloc\":false"))),
+            Check((string)scene.SelectedItem == "Game default" && matched.Contains("\"screen_stretch\":true") && (!sport || (matched.Contains("\"wide_scene\":false") && matched.Contains("\"wide_scene_alloc\":false"))),
                   "Stretched is saved for " + game.TitleId);
             Check(shapePreview.Text.Contains("Game default render resolution") && shapePreview.Text.Contains("Old method") &&
                   shapePreview.Text.Contains("stretched over the window") &&
@@ -387,22 +396,36 @@ namespace RyGT
             Check(scene.Enabled && preview.Text.Contains("2560 × 1440") && preview.Text.Contains("centered"),
                   "Fixed 16:9 remains centered on a wide output");
             pro.SelectedIndex = 0;
-            scene.SelectedItem = "3440 x 1440";
-            Check(preview.Text.Contains("Rendered at 3440 × 1440"), "Exact ultrawide render size");
+            // FIX-RT-052: ultrawide sizes are not lines of the list any more: Screen shape gives them,
+            // and each line shows the size really rendered.
+            Check(!scene.Items.Contains("3440 x 1440") && !scene.Items.Contains("5120 x 1440") && scene.Items.Contains("3840 x 2160"),
+                  "At a 16:9 shape the list holds 16:9 sizes");
+            widePicture.SelectedIndex = 0;
+            shape.SelectedIndex = 1;
+            Check((string)scene.SelectedItem == "3440 x 1440" && preview.Text.Contains("Rendered at 3440 × 1440") &&
+                  File.ReadAllText(game.ConfigPath(root)).Contains("\"native_resolution\":\"2560x1440\""),
+                  "Exact ultrawide render size, from the screen's shape");
+            shape.SelectedItem = "21:9";
             output.SelectedItem = "5120 x 1440";
             Check(preview.Text.Contains("same aspect ratio"), "Warn before presenting a different wide aspect");
-            scene.SelectedItem = "5120 x 1440";
-            Check(preview.Text.Contains("Rendered at 5120 × 1440"), "32:9 at 1440p");
-            scene.SelectedItem = "3840 x 1080";
-            Check(preview.Text.Contains("Rendered at 3840 × 1080  →  Window 5120 × 1440"), "32:9 at 1080p in a larger window");
+            shape.SelectedIndex = 1;
+            Check((string)scene.SelectedItem == "5120 x 1440" && preview.Text.Contains("Rendered at 5120 × 1440"), "32:9 at 1440p");
+            scene.SelectedIndex = 0;
+            Check((string)scene.SelectedItem == "3840 x 1080" &&
+                  preview.Text.Contains("Rendered at 3840 × 1080  →  Window 5120 × 1440"), "32:9 at 1080p in a larger window");
             var stored = File.ReadAllText(game.ConfigPath(root));
-            Check(stored.Contains("3840x1080") && (!gts || stored.Contains("\"wide_scene_height\":1080")), "Exact wide preset reaches the game profile");
-            // Reopen a custom size absent from the built-in presets and its monitor modes.
-            File.WriteAllText(game.ConfigPath(root), stored.Replace("3840x1080", "4096x1152"));
+            Check(stored.Contains("\"native_resolution\":\"game\"") && (!gts || stored.Contains("\"wide_scene_height\":1080")),
+                  "The wide scene reaches the game profile");
+            // A size of another shape saved by an older launcher, or typed in Custom, stays as it is.
+            File.WriteAllText(game.ConfigPath(root), stored.Replace("\"native_resolution\":\"game\"", "\"native_resolution\":\"4096x1152\""));
             using (var reopened = new LoaderForm(game.Kind, root)) {
                 var selected = (System.Windows.Forms.ComboBox)reopened.Controls.Find("SceneResolution", true).Single();
-                Check((string)selected.SelectedItem == "4096 x 1152", "Custom ultrawide selection survives reopening");
+                Check((string)selected.SelectedItem == "4096 x 1152 (fixed shape)" &&
+                      reopened.Controls.Find("ScenePreview", true).Single().Text.Contains("Rendered at 4096 × 1152"),
+                      "A saved ultrawide size survives reopening");
             }
+            File.WriteAllText(game.ConfigPath(root), stored);
+            shape.SelectedIndex = 0;
             scene.SelectedItem = "2560 x 1440";
             Check(preview.Text.Contains("centered"), "Switching back to a standard render size restores 16:9");
             scene.SelectedIndex = 0;

@@ -3879,7 +3879,14 @@ namespace RyGT
                 resolution.SelectedIndex = keys.IndexOf(key);
             };
             var native = new DarkComboBox { Name = "SceneResolution", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
-            var nativeModes = RenderResolution.NativeModes.ToList();
+            // FIX-RT-052: the list holds 16:9 sizes; a wider or a taller scene comes from Screen shape,
+            // and each line shows the size really rendered for that shape (see sceneLabel).
+            Func<string, Size, bool> standardMode = (mode, at) => {
+                if (mode == "game" || mode == RenderResolution.Auto) return true;
+                Size? size = RenderResolution.NativeSize(mode, at);
+                return size.HasValue && size.Value.Width * 9 == size.Value.Height * 16;
+            };
+            var nativeModes = RenderResolution.NativeModes.Where(mode => standardMode(mode, new Size(1920, 1080))).ToList();
             bool gts = target == GameKind.GTSport;
             var gpu = ReadGpuSettings(root, info);
             Func<Size> selectedOutput = delegate {
@@ -3894,11 +3901,13 @@ namespace RyGT
             foreach (long key in modes.Keys) {
                 var size = new Size((int)(key >> 32), (int)(uint)key);
                 string mode = RenderResolution.ModeKey(size);
-                if (!nativeModes.Contains(mode) && RenderResolution.NativeSize(mode, size).HasValue)
+                if (!nativeModes.Contains(mode) && standardMode(mode, size))
                     nativeModes.Add(mode);
             }
             if (!nativeModes.Contains(savedMode) && RenderResolution.NativeSize(savedMode, initialOutput).HasValue)
                 nativeModes.Add(savedMode);
+            // Every size the list can show; nativeModes holds the lines shown now (see relabelScenes).
+            var allModes = nativeModes.ToList();
             Func<string> autoLabel = () => screen.SelectedIndex == 0 ? "Auto (fit to window size)" : "Auto (fit to display resolution)";
             foreach (string option in nativeModes)
                 native.Items.Add(option == "game" ? "Game default" : option == RenderResolution.Auto ? autoLabel() : option.Replace("x", " x "));
@@ -3927,11 +3936,12 @@ namespace RyGT
             panel.Controls.Add(new SettingRow("Screen shape", shape));
             panel.Controls.Add(Hint("The race view fills a screen of this shape: wider shows more to the sides, taller more above and below. Menus stay 16:9. Auto or an ultrawide Render resolution sets the shape by itself."));
             var widePicture = new DarkComboBox { Name = "WidePicture", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
-            widePicture.Items.Add("Native (rendered at the screen's shape)");
+            widePicture.Items.Add("Native (at the screen's shape)");
             widePicture.Items.Add("Stretched (old method, lighter)");
             widePicture.SelectedIndex = RenderResolution.SavedStretch(savedGpu, savedMode) ? 1 : 0;
             panel.Controls.Add(new SettingRow("Shape rendering", widePicture));
             panel.Controls.Add(Hint("Native renders the race at the screen's shape: wider at the Render resolution's height, taller at its width. Sharp, more pixels to draw. Stretched fits the game's 16:9 picture to the screen: fewer pixels to draw, less sharp the further the screen is from 16:9."));
+            bool loading = true;
             var rendererKnown = new Dictionary<string, bool>();
             Func<string, bool> rendererHas = delegate(string name) {
                 bool known;
@@ -3940,14 +3950,52 @@ namespace RyGT
             };
             // The page's choices as Play would read them (upscaling, the renderer and Pro mode are
             // set on other cards and read as they are saved now).
-            Func<string, RenderResolution.ScenePlan> pagePlan = delegate(string mode) {
-                var saved = ReadGpuSettings(root, info);
+            Func<string, Dictionary<string, object>, RenderResolution.ScenePlan> planWith = delegate(string mode, Dictionary<string, object> saved) {
                 return RenderResolution.Plan(gts, null, mode, SavedProMode() == "1080p" ? "1080p" : "off", selectedOutput(),
                                              ShownUpscaling(root, target, k => saved.ContainsKey(k) ? saved[k] : null), rendererHas);
+            };
+            Func<string, RenderResolution.ScenePlan> pagePlan = mode => planWith(mode, ReadGpuSettings(root, info));
+            // FIX-RT-052: what a line of the Render resolution list says. With a Native shape the scene
+            // is not the 16:9 size the line stands for (1920 x 1200 on a 16:10 screen for the game's
+            // own 1920 x 1080): the line shows the size really rendered, and nothing else. "Game
+            // default" is the game's own 1920 x 1080 scene only: a scene of another size is never
+            // called a default. A size of another shape (older profile, Custom) is fixed.
+            Func<string, Dictionary<string, object>, string> sceneLabel = delegate(string mode, Dictionary<string, object> saved) {
+                if (mode == RenderResolution.Auto) return autoLabel();
+                if (mode != "game" && !standardMode(mode, selectedOutput())) return mode.Replace("x", " x ") + " (fixed shape)";
+                var plan = planWith(mode, saved);
+                bool shaped = plan.FromShape && plan.Scene.HasValue;
+                if (shaped) return plan.Scene.Value.Width + " x " + plan.Scene.Value.Height;
+                return mode == "game" ? "Game default" : mode.Replace("x", " x ");
+            };
+            Action relabelScenes = delegate {
+                var saved = ReadGpuSettings(root, info);
+                bool was = loading;
+                loading = true;
+                string current = native.SelectedIndex >= 0 ? nativeModes[native.SelectedIndex] : null;
+                // Two lines that render the same scene (the game's size and 1920 x 1080 at a Native
+                // shape) are shown once: the chosen one, else the first.
+                var shownModes = new List<string>();
+                var shownLabels = new List<string>();
+                foreach (string mode in allModes) {
+                    string label = sceneLabel(mode, saved);
+                    int at = shownLabels.IndexOf(label);
+                    if (at < 0) { shownModes.Add(mode); shownLabels.Add(label); }
+                    else if (mode == current) shownModes[at] = mode;
+                }
+                if (!shownModes.SequenceEqual(nativeModes) || !shownLabels.SequenceEqual(native.Items.Cast<string>())) {
+                    nativeModes.Clear();
+                    nativeModes.AddRange(shownModes);
+                    native.Items.Clear();
+                    foreach (string label in shownLabels) native.Items.Add(label);
+                    native.SelectedIndex = Math.Max(0, nativeModes.IndexOf(current));
+                }
+                loading = was;
             };
             Action showScene = delegate {
                 if (resolution.SelectedIndex < 0 || native.SelectedIndex < 0) return;
                 var output = selectedOutput();
+                relabelScenes();
                 bool checker = UsesCheckerboard(SavedProMode(), ReadSetting("GPU", "ps4_pro_checkerboard", false));
                 native.Enabled = customRender.Enabled = widePicture.Enabled = !checker;
                 // On a Pro 4K TV the game sets the scene: GT7 keeps its shape there, GT Sport stays 16:9.
@@ -3982,7 +4030,6 @@ namespace RyGT
                     effective.Text += " The 16:9 image is centered.";
             };
             refreshSceneChoice = showScene;
-            bool loading = true;
             Action saveScene = delegate {
                 string mode = nativeModes[native.SelectedIndex];
                 WriteSetting("GPU", "screen_aspect", shapes[shape.SelectedIndex]);
@@ -4017,6 +4064,7 @@ namespace RyGT
                 var picked = PickDimensions("Render resolution", RenderResolution.NativeSize(nativeModes[native.SelectedIndex], output) ?? output, true);
                 if (!picked.HasValue) return;
                 string mode = RenderResolution.ModeKey(picked.Value);
+                if (!allModes.Contains(mode)) allModes.Add(mode);
                 if (!nativeModes.Contains(mode)) { nativeModes.Add(mode); native.Items.Add(mode.Replace("x", " x ")); }
                 native.SelectedIndex = nativeModes.IndexOf(mode);
             };

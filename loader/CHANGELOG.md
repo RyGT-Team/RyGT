@@ -8,6 +8,13 @@ CI fails when the two disagree.
 
 ## 0.3.28 - 2026-11-28
 
+* FIX-RT-052: the Render resolution list says the size really rendered. With a Native screen shape the line
+  still read "Game default" (the game's 1920 x 1080) while the scene was 1920 x 1200 on a 16:10 screen or
+  2576 x 1080 on a 3440 x 1440 one. Each line now shows the scene for the chosen shape ("1920 x 1200",
+  "3440 x 1440"), and "Game default" is the game's own 1920 x 1080 scene only; two lines that would render
+  the same scene are shown once. The list holds 16:9 sizes
+  only: ultrawide sizes come from Screen shape, and one saved by an older launcher or typed in Custom stays
+  in the list as "(fixed shape)". The Shape rendering choices are shorter so that they fit the row.
 * FEAT-RT-051: a Screen shape taller than 16:9 (16:10, 4:3) is rendered at that shape in GT Sport, where the
   renderer can (shadGT FEAT-SGT-210, its switch `RYGT_TALL_SCENE`). With Shape rendering on Native, the scene
   keeps the 16:9 scene's width and gets more lines: 1920 x 1200 on a 16:10 screen, 1920 x 1440 on a 4:3 one,
