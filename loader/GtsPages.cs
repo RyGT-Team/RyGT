@@ -1167,7 +1167,8 @@ namespace RyGT
                                    !ReadSetting("GPU", "framegen_enabled", false) &&
                                    !ReadSetting("GPU", "dlssg_enabled", false);
                     StartGameGts(root, settings.HddStreaming, experimentalSceneSize, antiLag,
-                              ReadSetting("GPU", "shader_pretranslate", true), CustomEnvironment.Copy(settings.Env));
+                              ReadSetting("GPU", "shader_pretranslate", true), CustomEnvironment.Copy(settings.Env),
+                              ReportStartFailure);
                     status.Text = "GT Sport is starting. Logs: logs\\stdout.log and logs\\stderr.log.";
                 }));
             });
@@ -1178,7 +1179,8 @@ namespace RyGT
 
         /// Starts GTSport.exe once, with session log rotation; after a GPU device loss it is not started
         /// again (FIX-GTS-491), the setup log says so.
-        static void StartGameGts(string root, bool hddStreaming, Size? sceneSize, bool antiLag, bool shaderPretranslate, List<EnvVar> customEnv)
+        static void StartGameGts(string root, bool hddStreaming, Size? sceneSize, bool antiLag, bool shaderPretranslate, List<EnvVar> customEnv,
+                                 Action<string> failed)
         {
             string exe = Path.Combine(root, "GTSport.exe");
             // Preserve GT Sport metadata while migrating the launcher publisher field from older installs.
@@ -1196,6 +1198,7 @@ namespace RyGT
                 catch (Exception e)
                 {
                     AppendSetupLog(root, GameInfo.GTSport.TitleId, "Could not prepare game logs: " + e.Message);
+                    failed("Could not prepare game logs: " + e.Message);
                     return;
                 }
 
@@ -1236,6 +1239,7 @@ namespace RyGT
                 catch (Exception e)
                 {
                     AppendSetupLog(root, GameInfo.GTSport.TitleId, "Could not start GT Sport: " + e.Message);
+                    failed(e.Message);
                     return;
                 }
                 if (started == null) return;

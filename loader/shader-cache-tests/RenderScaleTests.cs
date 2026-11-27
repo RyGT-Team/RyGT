@@ -42,6 +42,34 @@ Check(RenderResolution.SavedMode(false,get,new Size(5120,1440))=="5120x1440","le
 Check(RenderResolution.NativeSize("3840x2160", new Size(1280,720)) == new Size(3840,2160), "fixed scene independent of window");
 Check(!RenderResolution.NativeSize("game", new Size(1280,720)).HasValue, "keep console settings");
 SizeIs(1920,1080,"performance",960,540);SizeIs(1920,1080,"quality",1280,720);SizeIs(1920,1080,"ultra_performance",640,360);SizeIs(1920,1080,"balanced",1136,639);SizeIs(3840,2160,"quality",2560,1440);SizeIs(3840,2160,"dlaa",3840,2160);SizeIs(1280,720,"performance",640,360);
+// FIX-RT-048: one refusal decision for the Display page's preview and for Play.
+var profile = new System.Collections.Generic.Dictionary<string,object>();
+Func<string,object> saved = k => profile.ContainsKey(k) ? profile[k] : null;
+Size uhd = new Size(3840,2160), fhd = new Size(1920,1080), wide1440 = new Size(3440,1440);
+Check(RenderResolution.Refusal(false,saved,null,fhd,"off")==null,"game default is never refused");
+Check(RenderResolution.Refusal(false,saved,uhd,fhd,"off")==null,"fixed 4K scene without upscaling");
+Check(RenderResolution.Refusal(false,saved,uhd,fhd,"1080p")==null,"fixed 4K scene on a Pro 1080p TV");
+Check(RenderResolution.Refusal(false,saved,wide1440,wide1440,"off")==null,"GT7 native ultrawide in base mode");
+Check(RenderResolution.Refusal(false,saved,wide1440,wide1440,"1080p").Contains("base PS4"),"GT7 native ultrawide needs base mode");
+Check(RenderResolution.Refusal(true,saved,wide1440,wide1440,"1080p")==null,"GT Sport native ultrawide on a Pro 1080p TV");
+Check(RenderResolution.Refusal(true,saved,wide1440,fhd,"off").Contains("same aspect ratio"),"wide scene in a 16:9 window");
+foreach (string upscaler in new[] {"dlss_enabled","fsr_enabled"}) {
+    profile[upscaler]=true;
+    foreach (bool gtsGame in new[] {false,true}) {
+        Check(RenderResolution.Refusal(gtsGame,saved,uhd,fhd,"1080p").Contains("upscaling"),upscaler+" with a fixed scene is refused");
+        Check(RenderResolution.Refusal(gtsGame,saved,wide1440,wide1440,"off").Contains("upscaling"),upscaler+" with a wide scene is refused");
+        // Auto in a 1920 x 1080 window: the game's own scene, nothing to patch.
+        Check(RenderResolution.Refusal(gtsGame,saved,RenderResolution.NativeSize(RenderResolution.Auto,fhd),fhd,"off")==null,upscaler+" with Auto at the game's own size");
+        Check(RenderResolution.Refusal(gtsGame,saved,fhd,fhd,"1080p").Contains("upscaling"),upscaler+": the Pro 1080p scene is patched even at 1920 x 1080");
+        Check(RenderResolution.Refusal(gtsGame,saved,uhd,fhd,"4k")==null,upscaler+": the game sets the scene on a Pro 4K TV");
+    }
+    profile.Remove(upscaler);
+}
+profile["native_renderer"]=false;
+Check(RenderResolution.Refusal(true,saved,uhd,fhd,"off").Contains("Native renderer"),"old renderer with a fixed scene");
+profile.Remove("native_renderer"); profile["experimental_render_scale"]=true;
+Check(RenderResolution.Refusal(true,saved,uhd,fhd,"off").Contains("Native renderer"),"experimental scale with a fixed scene");
+Check(RenderResolution.IsGameDefault(fhd,"off") && !RenderResolution.IsGameDefault(fhd,"1080p") && !RenderResolution.IsGameDefault(uhd,"off") && RenderResolution.IsGameDefault(null,"1080p"),"game default sizes");
 string dir=Path.Combine(Path.GetTempPath(),"RyGT-render-scale-"+Guid.NewGuid());Directory.CreateDirectory(dir);
 try { byte[] pe=new byte[512];Action<int,int> put=(at,n)=>Array.Copy(BitConverter.GetBytes(n),0,pe,at,4);put(0x3c,0x80);pe[0x86]=3;int table=0x98;int[] rvas={0x1988ad3,0x1988ab0,0x1988ab9};string[] signatures={"48b98007000038040000","8b0d72ea2301","8b0d6dea2301"};for(int i=0;i<3;i++){int at=table+i*40,raw=400+i*32;put(at+12,rvas[i]);put(at+16,signatures[i].Length/2);put(at+20,raw);for(int j=0;j<signatures[i].Length/2;j++)pe[raw+j]=Convert.ToByte(signatures[i].Substring(j*2,2),16);}File.WriteAllBytes(Path.Combine(dir,"GTSport.exe"),pe);
 var start=new ProcessStartInfo();start.EnvironmentVariables.Remove("SHADGT_PATCH");RenderResolution.ConfigureStart(start,dir,new Size(960,540));Check(start.EnvironmentVariables["SHADGT_PATCH"].Contains("48b9c00300001c020000"),"allocation patch");Check(start.EnvironmentVariables["SHADGT_SCENE_WIDTH"]=="960","scene env");Check(start.EnvironmentVariables["SHADGT_EXPERIMENTAL_SCENE_VIEWPORT"]=="1","viewport hook");

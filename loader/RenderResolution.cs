@@ -143,6 +143,29 @@ namespace RyGT
                    scene.Width + " × " + scene.Height + " to keep the picture in proportion.";
         }
 
+        // FIX-RT-048: the game's own 1920 x 1080 scene outside Pro mode needs no patch: it is the
+        // game default (Auto in a 1920 x 1080 window), and nothing conflicts with it.
+        public static bool IsGameDefault(Size? scene, string pro)
+        {
+            return !scene.HasValue || (scene.Value == new Size(1920, 1080) && pro != "1080p");
+        }
+
+        // FIX-RT-048: why Play refuses this render resolution, or null. One decision for the Display
+        // page's preview and for the launch, so the page never shows as accepted a choice that Play
+        // then refuses. pro is "off", "1080p" or "4k" (in 4k the game sets the scene itself).
+        public static string Refusal(bool gts, Func<string, object> setting, Size? scene, Size output, string pro)
+        {
+            if (pro == "4k" || IsGameDefault(scene, pro)) return null;
+            if (Equals(setting("fsr_enabled"), true) || Equals(setting("dlss_enabled"), true))
+                return "Turn off upscaling (DLSS, FSR) on the Graphics page to use this render resolution, or set Render resolution to Game default.";
+            if (Equals(setting("native_renderer"), false) || Equals(setting("experimental_render_scale"), true))
+                return "Choose the Native renderer and turn off experimental viewport scaling for a fixed render resolution.";
+            if (!SupportsWideScene(scene.Value)) return null;
+            string shape = WideOutputWarning(scene.Value, output);
+            if (shape != null) return shape;
+            return !gts && pro != "off" ? "Choose base PS4 mode to use native ultrawide rendering in GT7." : null;
+        }
+
         public static string SavedMode(bool gts, Func<string, object> setting, Size output)
         {
             string mode = setting("native_resolution") as string ?? (Equals(setting("native_4k"), true) ? "3840x2160" : "game");

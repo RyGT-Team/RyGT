@@ -251,8 +251,32 @@ namespace RyGT
             method.SelectedItem = "NVIDIA DLSS";
             Check((string)method.SelectedItem == "NVIDIA DLSS" && guide.Text.Contains(gts ? "Start with Quality" : "Auto (window size)"),
                   "DLSS guidance matches this game's quality settings");
+            // FIX-RT-048: the preview announces what Play refuses, with upscaling as it is saved now.
+            scene.SelectedItem = "2560 x 1440";
+            Check(preview.Text.Contains("Turn off upscaling") && !preview.Text.Contains("Rendered at"),
+                  "A fixed render resolution with DLSS on is refused before Play, " + game.TitleId);
+            scene.SelectedIndex = 0;
+            Check(preview.Text.Contains("Game default render resolution"), "Game default goes with DLSS");
             method.SelectedItem = "Off";
             Check(guide.Text.Contains("native 4K"), "Upscaling Off explains native 4K");
+            scene.SelectedItem = "2560 x 1440";
+            Check(preview.Text.Contains("Rendered at 2560 × 1440"), "Without upscaling the fixed size is accepted");
+            // Upscaling chosen afterwards, on the Graphics page: the Display page says so when it is shown again.
+            method.SelectedItem = "NVIDIA DLSS";
+            form.ShowSettings("Display", false);
+            Check(preview.Text.Contains("Turn off upscaling"), "The preview follows upscaling turned on later");
+            // A DLSS flag left on without the DLSS files upscales nothing and is shown as off: not refused.
+            Func<string, object> flagOn = k => k == "dlss_enabled" || k == "fsr_enabled" ? (object)(k == "dlss_enabled") : null;
+            string noDlss = Path.Combine(Path.GetTempPath(), "RyGT-no-dlss-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(noDlss);
+            try {
+                Check(Equals(LoaderForm.ShownUpscaling(root, game.Kind, flagOn)("dlss_enabled"), true) &&
+                      Equals(LoaderForm.ShownUpscaling(noDlss, game.Kind, flagOn)("dlss_enabled"), false) &&
+                      Equals(LoaderForm.ShownUpscaling(noDlss, game.Kind, flagOn)("fsr_enabled"), false),
+                      "DLSS counts as upscaling only with its files, " + game.TitleId);
+            } finally { Directory.Delete(noDlss, true); }
+            method.SelectedItem = "Off";
+            scene.SelectedIndex = 0;
         }
 
         static void FormChecks(string root)

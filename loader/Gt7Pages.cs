@@ -1197,7 +1197,7 @@ namespace RyGT
                     if (playDumpProblem != null) ShowRedumpHint(playDumpProblem);
                     if (prepared)
                     {
-                        StartGameGt7(root);
+                        StartGameGt7(root, ReportStartFailure);
                         status.Text = "GT7 is starting. Logs: logs\\stdout.log and logs\\stderr.log.";
                     }
                     else status.Text = "Could not prepare GT7. See the log.";
@@ -1210,7 +1210,7 @@ namespace RyGT
 
         /// Starts GT7.exe once, with session log rotation; after a GPU device loss it is not started
         /// again (FIX-GTS-491), the setup log says so.
-        static void StartGameGt7(string root)
+        static void StartGameGt7(string root, Action<string> failed)
         {
             string exe = Path.Combine(root, "GT7.exe");
             // Folders set up by an earlier launcher (RyGT7.exe) get the icon and the Windows subsystem now.
@@ -1225,6 +1225,7 @@ namespace RyGT
                 catch (Exception e)
                 {
                     AppendSetupLog(root, GameInfo.GT7.TitleId, "Could not prepare game logs: " + e.Message);
+                    failed("Could not prepare game logs: " + e.Message);
                     return;
                 }
 
@@ -1291,6 +1292,7 @@ namespace RyGT
                 catch (Exception e)
                 {
                     AppendSetupLog(root, GameInfo.GT7.TitleId, "Could not start GT7: " + e.Message);
+                    failed(e.Message);
                     return;
                 }
                 if (started == null) return;

@@ -2814,6 +2814,9 @@ namespace RyGT
             lastPage = page;
             foreach (var pair in pages) pair.Value.Visible = pair.Key == page;
             foreach (var pair in pageItems) pair.Value.Active = pair.Key == page;
+            // FIX-RT-048: upscaling and the renderer are chosen on the Graphics page; the Display
+            // page's preview says what Play accepts with them as they are now.
+            if (page == "Display" && refreshSceneChoice != null) refreshSceneChoice();
             if (settingsView.Visible) return;
             Fade(home, delegate { home.Visible = false; settingsView.Visible = true; }, settingsView, animate);
         }
@@ -3642,16 +3645,12 @@ namespace RyGT
             bool wide = size.HasValue && RenderResolution.SupportsWideScene(size.Value);
             if (gts && !wide && env["SHADGT_WIDE_SCENE"] == null)
                 env["SHADGT_WIDE_SCENE"] = "0";
-            if (!size.HasValue) return;
-            if (Equals(setting("fsr_enabled"), true) || Equals(setting("dlss_enabled"), true))
-                throw new InvalidOperationException("Turn off upscaling to choose a render resolution.");
-            if (Equals(setting("native_renderer"), false) || Equals(setting("experimental_render_scale"), true))
-                throw new InvalidOperationException("Choose the Native renderer and turn off experimental viewport scaling for a fixed render resolution.");
+            // FIX-RT-048: Auto in a 1920 x 1080 window is the game's own scene: nothing to patch.
+            if (RenderResolution.IsGameDefault(size, pro)) return;
+            // FIX-RT-048: the same decision the Display page previews.
+            string refusal = RenderResolution.Refusal(gts, ShownUpscaling(root, game.Kind, setting), size, output, pro);
+            if (refusal != null) throw new InvalidOperationException(refusal);
             if (wide) {
-                string warning = RenderResolution.WideOutputWarning(size.Value, output);
-                if (warning != null) throw new InvalidOperationException(warning);
-                if (!gts && pro != "off")
-                    throw new InvalidOperationException("Choose base PS4 mode to use native ultrawide rendering in GT7.");
                 if (gts) {
                     // WIDE-001 reads its height and allocation flag from the game's profile.
                     if (Convert.ToString(setting("wide_scene_height")) != size.Value.Height.ToString() ||
@@ -3706,6 +3705,32 @@ namespace RyGT
                 if (File.Exists(path)) File.Replace(temp, path, null);
                 else File.Move(temp, path);
             } finally { if (File.Exists(temp)) File.Delete(temp); }
+        }
+
+        // FIX-RT-048: upscaling as the Graphics pages show it. DLSS counts only with its files in the
+        // dlss folder: without them the pages show it off while the saved flag can stay on, nothing
+        // upscales, and "turn off upscaling" would ask for what the page already shows.
+        internal static Func<string, object> ShownUpscaling(string root, GameKind game, Func<string, object> setting)
+        {
+            string dir = Path.Combine(root, "dlss");
+            Func<string, bool> has = name => File.Exists(Path.Combine(dir, name));
+            bool usable = has("nvngx_dlss.dll") &&
+                          (has("ryGT_dlss.dll") || (game == GameKind.GT7 && has("sl.interposer.dll") && has("sl.common.dll") && has("sl.dlss.dll")));
+            return key => key == "dlss_enabled" ? (object)(usable && Equals(setting(key), true)) : setting(key);
+        }
+
+        // FIX-RT-048: a game that could not be started says so in the window, not only in setup.log
+        // (the status line kept reading "... is starting" while nothing ran). Called from the
+        // launch thread, after the caller wrote its "is starting" line.
+        void ReportStartFailure(string message)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            try {
+                BeginInvoke(new Action(delegate {
+                    status.Text = info.Short + " was not started: " + message;
+                    MessageBox.Show(this, info.Short + " was not started.\n\n" + message, info.Product + " Launcher");
+                }));
+            } catch (InvalidOperationException) { } // the window closed meanwhile
         }
 
         Action refreshSceneChoice;
@@ -3874,9 +3899,13 @@ namespace RyGT
                 string displayed = (screen.SelectedIndex == 0 ? "Window " : "Display ") + output.Width + " × " + output.Height + ".";
                 string warning = null;
                 if (checker) warning = CheckerboardWarning + " " + Native4kGuide;
-                else if (scene.HasValue && RenderResolution.SupportsWideScene(scene.Value))
-                    warning = !gts && SavedProMode() == "1080p" ? "Choose base PS4 mode for native ultrawide rendering in GT7." :
-                              RenderResolution.WideOutputWarning(scene.Value, output);
+                else {
+                    // FIX-RT-048: what Play would refuse, from the profile as it is saved now (upscaling
+                    // and the renderer are set on other cards).
+                    var saved = ReadGpuSettings(root, info);
+                    warning = RenderResolution.Refusal(gts, ShownUpscaling(root, target, k => saved.ContainsKey(k) ? saved[k] : null),
+                                                       scene, output, SavedProMode() == "1080p" ? "1080p" : "off");
+                }
                 effective.ForeColor = warning != null ? Dark.AccentText : Dark.DimText;
                 string rendered = scene.HasValue ? "Rendered at " + scene.Value.Width + " × " + scene.Value.Height :
                                                    "Game default render resolution";
