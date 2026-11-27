@@ -1956,9 +1956,17 @@ namespace RyGT
                 return y + 4;
             }
 
+            /// Where the author starts after a title: the title's width and one space (GDI drops a trailing
+            /// space from a measure, and padding added more than a space).
+            int AuthorX(string title)
+            {
+                int space = TextRenderer.MeasureText("a a", Font, Size.Empty, Line).Width - TextRenderer.MeasureText("aa", Font, Size.Empty, Line).Width;
+                return TextRenderer.MeasureText(title, Font, Size.Empty, Line).Width + space;
+            }
+
             bool FitsOneLine(System.Text.RegularExpressions.Match authored, int width)
             {
-                return TextRenderer.MeasureText(authored.Groups[1].Value + " ", Font, Size.Empty, Line).Width +
+                return AuthorX(authored.Groups[1].Value) +
                        TextRenderer.MeasureText(authored.Groups[2].Value, italic, Size.Empty, Line).Width <= width;
             }
 
@@ -1979,7 +1987,7 @@ namespace RyGT
                         if (FitsOneLine(authored, area.Width))
                         {
                             TextRenderer.DrawText(e.Graphics, title, Font, area.Location, Dark.Text, Line);
-                            int x = area.X + TextRenderer.MeasureText(title + " ", Font, Size.Empty, Line).Width;
+                            int x = area.X + AuthorX(title);
                             TextRenderer.DrawText(e.Graphics, author, italic, new Point(x, area.Y), Dark.DimText, Line);
                         }
                         else

@@ -438,9 +438,11 @@ namespace RyGT
             if (release == null || !release.Artifact) return;
             try
             {
+                // Each repository on its own: one GitHub can't compare (a build from an unknown commit,
+                // such as a local one) still leaves the other's list.
                 var lines = new List<string>();
-                lines.AddRange(CompareLines(Repository, BuildCommit(root), release.Commit));
-                lines.AddRange(CompareLines(RendererRepository, BuildRendererCommit(root), release.RendererCommit));
+                try { lines.AddRange(CompareLines(Repository, BuildCommit(root), release.Commit)); } catch { }
+                try { lines.AddRange(CompareLines(RendererRepository, BuildRendererCommit(root), release.RendererCommit)); } catch { }
                 if (lines.Count > 0) release.Notes = ChangesHeading + "\n" + string.Join("\n", lines.Select(l => "- " + l));
             }
             catch { }
@@ -449,11 +451,29 @@ namespace RyGT
         static List<string> CompareLines(string repository, string installed, string candidate)
         {
             var lines = new List<string>();
-            if (string.IsNullOrEmpty(installed) || string.IsNullOrEmpty(candidate) || SameCommit(installed, candidate)) return lines;
-            var compare = Json("https://api.github.com/repos/" + repository + "/compare/" + installed + "..." + candidate) as Dictionary<string, object>;
-            object commits;
-            if (compare == null || !compare.TryGetValue("commits", out commits)) return lines;
-            foreach (Dictionary<string, object> entry in ((object[])commits).OfType<Dictionary<string, object>>().Reverse())
+            if (string.IsNullOrEmpty(installed) || string.IsNullOrEmpty(candidate) || SameCommit(installed, candidate) ||
+                installed.Trim('0').Length == 0) // a local build's BUILD_INFO.txt says 0000...
+                return lines;
+            // GitHub lists a compare's commits oldest first, 100 a page (and only 250 without pages), so a
+            // long range needs its last pages for the newest commits: at most the newest 200, then a line
+            // for how many earlier ones are not listed.
+            string url = "https://api.github.com/repos/" + repository + "/compare/" + installed + "..." + candidate + "?per_page=100&page=";
+            var first = Json(url + "1") as Dictionary<string, object>;
+            object value;
+            if (first == null || !first.TryGetValue("commits", out value)) return lines;
+            var entries = ((object[])value).OfType<Dictionary<string, object>>().ToList();
+            int ahead = first.TryGetValue("ahead_by", out value) ? Convert.ToInt32(value) : entries.Count;
+            int pages = (ahead + 99) / 100;
+            if (pages > 1)
+            {
+                entries.Clear();
+                for (int page = Math.Max(1, pages - 1); page <= pages; ++page)
+                {
+                    var part = Json(url + page) as Dictionary<string, object>;
+                    if (part != null && part.TryGetValue("commits", out value)) entries.AddRange(((object[])value).OfType<Dictionary<string, object>>());
+                }
+            }
+            foreach (Dictionary<string, object> entry in Enumerable.Reverse(entries))
             {
                 var parents = entry.ContainsKey("parents") ? entry["parents"] as object[] : null;
                 if (parents != null && parents.Length > 1) continue;
@@ -461,6 +481,8 @@ namespace RyGT
                 string line = commit == null ? null : CommitLine(commit);
                 if (line != null) lines.Add(line);
             }
+            if (ahead > entries.Count)
+                lines.Add("... and " + (ahead - entries.Count) + " earlier commits in " + repository.Substring(repository.IndexOf('/') + 1));
             return lines;
         }
 
