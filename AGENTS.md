@@ -94,10 +94,15 @@ has to be published like this:
 - **The tag must point at the commit the package was built from** (its `BUILD_INFO.txt` commit).
   The updater reads the tag's commit to skip a release that is the same build as the installed
   one, for example the newest nightly.
-- **Nightlies come from both repositories (FIX-RT-044):** RyGT's `ci-package-release.yml` runs on
-  `development` and shadGT's `ci-package.yml` runs on `ryty-gpu`, both uploading
-  `ci-<RyGT commit>-renderer-<shadGT commit>`. The updater offers the newest, and its version
-  (`ci-1a2b3c4d+5e6f7a8b`) names both commits. Keep that artifact name.
+- **Nightlies come in two parts (FEAT-RT-046):** a push to RyGT `development` runs `ci-package-release.yml`
+  and uploads `runtime-<RyGT commit>`: everything but the renderer's files. shadGT's `ci-package.yml` runs
+  the same workflow for each `ryty-gpu` push (with `renderer_sha`) and uploads `renderer-<shadGT commit>`:
+  only `libs/libSceVideoOut.prx`, the renderer's runtime libraries, `tools/ryty-feel-test.exe`, the DLSS plugin
+  and its licence, listed in `RENDERER-SHA256SUMS.txt` with `RENDERER-BUILD_INFO.txt` (so unpacking it over a
+  folder keeps the folder's own lists). The updater installs the newest of each that differs from the folder's,
+  in one update with one backup. A manual run of `ci-package-release.yml` (workflow_dispatch) still packages
+  everything (`ci-<RyGT commit>-renderer-<shadGT commit>`), for releases; the diagnostics package stays complete.
+  The installed renderer's commit is read from the renderer itself (its `RYGTREV1` string). Keep these names.
 - **A release installs its own launcher.** Publish one whose `RyGTLauncher.exe` has the updater you want
   players to keep.
 

@@ -345,6 +345,36 @@ namespace RyGT
             Check(Updater.IsNewer(renderer, installed, nightly), "A newer renderer on the same RyGT commit is offered");
             Check(!Updater.IsNewer(release, installed, nightly), "A release of the same RyGT commit is not offered");
             Check(Updater.IsNewer(renderer, "ci-aaaaaaaa", nightly), "An installed version recorded before FIX-RT-044 still compares by renderer");
+            // FEAT-RT-046: a renderer-only nightly replaces only the renderer's files (not a runtime file its
+            // listing names), and a roll back puts them back.
+            string split = Path.Combine(folder, "sp"), splitPackage = Path.Combine(folder, "spp"), splitArtifact = Path.Combine(folder, "spa");
+            Put(Path.Combine(split, "BUILD_INFO.txt"), "{\"commit\": \"" + rygt + "\", \"launcher_version\": \"0.3.27\"}");
+            Put(Path.Combine(split, @"libs\libSceVideoOut.prx"), "old renderer");
+            Put(Path.Combine(split, @"libs\libc.prx"), "runtime");
+            string inner = Path.Combine(splitPackage, "r");
+            Put(Path.Combine(inner, @"libs\libSceVideoOut.prx"), "new renderer");
+            Put(Path.Combine(inner, @"libs\libc.prx"), "not the renderer's");
+            Func<string, string> hash = path => { using (var sha = System.Security.Cryptography.SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(path))).Replace("-", "").ToLowerInvariant(); };
+            Put(Path.Combine(inner, "RENDERER-SHA256SUMS.txt"), hash(Path.Combine(inner, @"libs\libSceVideoOut.prx")) + "  libs/libSceVideoOut.prx\n" +
+                                                                hash(Path.Combine(inner, @"libs\libc.prx")) + "  libs/libc.prx\n");
+            Directory.CreateDirectory(splitArtifact);
+            string packageZip = Path.Combine(splitArtifact, "RyGT-renderer-cccccccc.zip");
+            System.IO.Compression.ZipFile.CreateFromDirectory(splitPackage, packageZip);
+            Put(packageZip + ".sha256", hash(packageZip) + "  RyGT-renderer-cccccccc.zip\n");
+            string artifactZip = Path.Combine(folder, "ra.zip");
+            System.IO.Compression.ZipFile.CreateFromDirectory(splitArtifact, artifactZip);
+            var splitRelease = new ReleaseInfo { Artifact = true, Version = "ci-aaaaaaaa+cccccccc", Commit = rygt, RendererCommit = newer,
+                                                 ZipName = "RyGT-ci-aaaaaaaa.zip", RendererZipUrl = new Uri(artifactZip).AbsoluteUri };
+            Check(Updater.IsNewer(splitRelease, Updater.InstalledVersion(split), split), "A nightly with another renderer is offered");
+            Updater.Install(split, GameInfo.GTSport.TitleId, splitRelease, (text, fraction) => { });
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libSceVideoOut.prx")) == "new renderer", "The renderer package installs the renderer");
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libc.prx")) == "runtime", "The renderer package leaves the runtime's files");
+            Check(!File.Exists(Path.Combine(split, "RENDERER-SHA256SUMS.txt")) && File.Exists(Path.Combine(split, "BUILD_INFO.txt")), "The renderer package keeps the folder's own listing");
+            Check(Updater.LastUpdate(split) != null, "The renderer update can be rolled back");
+            Updater.RollBack(split);
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libSceVideoOut.prx")) == "old renderer" && File.ReadAllText(Path.Combine(split, @"libs\libc.prx")) == "runtime",
+                  "A roll back puts the renderer back");
+            Check(Updater.Display(Updater.InstalledVersion(split)) == "nightly 0.3.27", "A nightly is shown by its runtime version: " + Updater.Display(Updater.InstalledVersion(split)));
             // FEAT-RT-045: a nightly's changelog is its commit description as bullets.
             var run = new Dictionary<string, object> { { "head_commit", new Dictionary<string, object> { { "message",
                 "Merge pull request #151 from RyGT-Team/feat/x\n\nFEAT-SGT-189: GT7 DLSS below\nthe output\n\n- one\n- two\n  wrapped\n\nCo-Authored-By: A <a@b>" },

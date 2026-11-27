@@ -16,6 +16,9 @@ CI fails when the two disagree.
   author in italics, under Renderer changes (shadGT) and Runtime changes (RyGT), instead of when and where it
   was built. A merge shows its pull request's title. The installed renderer's commit is read from the
   renderer itself, so a test renderer copied into the folder counts.
+* FEAT-RT-046: nightlies come in two parts, the runtime from RyGT's runs and the renderer from shadGT's, and the
+  updater installs each only when the folder has another one, with one backup, so Roll back puts back what the
+  update replaced. A nightly is shown by its runtime version ("nightly 0.3.27"), not its commits.
 
 ## 0.3.24 - 2026-11-26
 

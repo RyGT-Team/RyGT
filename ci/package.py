@@ -137,6 +137,24 @@ RENDERER_TOOLS = ('ryty-feel-test.exe',)
 DLSS_PLUGIN = 'ryGT_dlss.dll'
 # The licence of NVIDIA's NGX loader inside the plugin (the DLSS SDK's LICENSE.txt), at the package's root.
 DLSS_LICENSE = 'NVIDIA-RTX-SDKs-LICENSE.txt'
+# FEAT-RT-046: a Release nightly is split: RyGT's own runs package the runtime (everything but the renderer's
+# files), shadGT's runs (renderer_sha) the renderer's files alone, and the launcher's updater installs each
+# part from its own repository. A manual run (workflow_dispatch) and the diagnostics package stay complete.
+PARTS = ('full', 'runtime', 'renderer')
+RENDERER_PACKAGE_FILES = (('libs/libSceVideoOut.prx',) + tuple('libs/' + name for name in RENDERER_LIBRARIES) +
+                          tuple('tools/' + name for name in RENDERER_TOOLS) + ('dlss/' + DLSS_PLUGIN, DLSS_LICENSE))
+# The renderer package's own listing and provenance: named apart, so unpacking it over a folder keeps the
+# runtime's BUILD_INFO.txt and SHA256SUMS.txt.
+RENDERER_BUILD_INFO, RENDERER_SUMS = 'RENDERER-BUILD_INFO.txt', 'RENDERER-SHA256SUMS.txt'
+
+
+def package_name(channel, commit, part, renderer_commit=None):
+    """RyGT-ci-<commit> (complete), RyGT-runtime-<commit> or RyGT-renderer-<renderer commit>."""
+    if part == 'runtime':
+        return f'RyGT-runtime-{commit[:8]}'
+    if part == 'renderer':
+        return f'RyGT-renderer-{renderer_commit[:8]}'
+    return f'RyGT-{channel}-{commit[:8]}'  # FIX-RT-015: RyGT, one package for both games
 
 
 def verify_runtime(folder, commit):
@@ -224,23 +242,28 @@ def check_package_imports(stage):
         raise RuntimeError('Unresolved imports between packaged modules:\n  ' + '\n  '.join(missing[:20]))
 
 
-def assemble(commit, flavor, channel, suffix):
+def assemble(commit, flavor, channel, suffix, part='full'):
+    if part not in PARTS or (suffix and part != 'full'):
+        raise ValueError('Invalid package part')
+    with_runtime, with_renderer = part != 'renderer', part != 'runtime'
     launcher_folder = Path('artifacts/launcher' + suffix)
     renderer_folder = Path('artifacts/renderer' + suffix)
-    launcher = verify_bundle(launcher_folder, 'RyGTLauncher.exe', commit, flavor)
-    renderer = verify_bundle(renderer_folder, 'libSceVideoOut.prx', commit, flavor)
     root = Path(__file__).resolve().parent.parent
-    pin = json.loads((root / 'renderer/source.json').read_text())
-    source_file = verify_artifact(renderer_folder, 'CI-SOURCE.txt', commit, 'data')
-    source = source_file.read_text(encoding='utf-8-sig')
-    lines = source.splitlines()
-    expected = os.environ.get('RENDERER_SHA')
-    if len(lines) != 2 or lines[0] != pin['repository'] or not re.fullmatch('[0-9a-f]{40}', lines[1]) or (expected and lines[1] != expected) or (pin['commit'] != 'HEAD' and pin['commit'] != lines[1]):
-        raise RuntimeError('Renderer source revision mismatch')
-    expected = lines[1]
-    if b'1440140585595047977' not in renderer.read_bytes() or b'DISCORD-RPC: compiled in;' not in renderer.read_bytes():
-        raise RuntimeError('Discord RPC missing or application ID incorrect')
-    name = f'RyGT-{channel}-{commit[:8]}'  # FIX-RT-015: RyGT, one package for both games
+    launcher = verify_bundle(launcher_folder, 'RyGTLauncher.exe', commit, flavor) if with_runtime else None
+    renderer = source = expected = None
+    if with_renderer:
+        renderer = verify_bundle(renderer_folder, 'libSceVideoOut.prx', commit, flavor)
+        pin = json.loads((root / 'renderer/source.json').read_text())
+        source_file = verify_artifact(renderer_folder, 'CI-SOURCE.txt', commit, 'data')
+        source = source_file.read_text(encoding='utf-8-sig')
+        lines = source.splitlines()
+        expected = os.environ.get('RENDERER_SHA')
+        if len(lines) != 2 or lines[0] != pin['repository'] or not re.fullmatch('[0-9a-f]{40}', lines[1]) or (expected and lines[1] != expected) or (pin['commit'] != 'HEAD' and pin['commit'] != lines[1]):
+            raise RuntimeError('Renderer source revision mismatch')
+        expected = lines[1]
+        if b'1440140585595047977' not in renderer.read_bytes() or b'DISCORD-RPC: compiled in;' not in renderer.read_bytes():
+            raise RuntimeError('Discord RPC missing or application ID incorrect')
+    name = package_name(channel, commit, part, expected)
     destination = Path('dist'); stage = destination / name
     stage.mkdir(parents=True, exist_ok=False)
 
@@ -251,66 +274,81 @@ def assemble(commit, flavor, channel, suffix):
 
     # FEAT-GTS-263: every file is built by this pipeline, downloaded pinned by the Tools target, or
     # taken from this repository; there is no runtime archive any more.
-    tree_files = repository_tree_files(root)
-    for repository_file, relative in REPOSITORY_FILES + tuple(tree_files):
-        place(root / repository_file, relative)
-    place(launcher, 'RyGTLauncher.exe')
-    place(renderer, 'libs/libSceVideoOut.prx')
+    tree_files, libraries = [], []
     runtime_folder = Path('artifacts/runtime')
-    libraries, dlls = verify_runtime(runtime_folder, commit)
-    for library in libraries:
-        place(library, 'libs/' + library.name)
-    for dll in dlls:
-        place(dll, dll.name)
-        place(dll, 'converter/' + dll.name)  # the converter is linked against the same runtime
-    place(runtime_folder / 'ryty.exe', 'converter/ryty.exe')
-    place(runtime_folder / 'ryty-wheel-probe.exe', 'tools/ryty-wheel-probe.exe')
-    for library_name in RENDERER_LIBRARIES:
-        place(verify_artifact(renderer_folder, library_name, commit), 'libs/' + library_name)
-    for tool_name in RENDERER_TOOLS:
-        place(verify_artifact(renderer_folder, tool_name, commit), 'tools/' + tool_name)
-    place(verify_artifact(renderer_folder, DLSS_PLUGIN, commit), 'dlss/' + DLSS_PLUGIN)
-    place(verify_artifact(renderer_folder, DLSS_LICENSE, commit, 'data'), DLSS_LICENSE)
-    tools_folder = Path('artifacts/tools')
-    for file in TOOLS_FILES:
-        kind = 'pe' if file.endswith(('.exe', '.dll')) else 'data'
-        tool = verify_artifact(tools_folder, file, commit, kind)
-        if file.startswith('amd_fidelityfx_vk'):
-            place(tool, file)
-        else:
-            place(tool, 'tools/adcpatch/' + ('README.txt' if file == 'adcpatch-README.txt' else file))
-    for file, relative in GT7_TOOLS_FILES:
-        place(verify_artifact(tools_folder, file, commit), relative)
-    for file, relative in GT7_RUNTIME_FILES:
-        place(verify_artifact(runtime_folder, file, commit, 'pe' if file.endswith('.dll') else 'data'), relative)
-    check_package_imports(stage)
-    for name_required in ('converter/ryty.exe', 'tools/adcpatch/adcpatch.exe', 'tools/ryty-wheel-probe.exe',
-                          'tools/ryty-feel-test.exe', 'dlss/' + DLSS_PLUGIN, DLSS_LICENSE,
-                          'libs/libc.prx', 'libs/libkernel.prx', 'libs/libSceBluetoothHid.prx',
-                          'amd_fidelityfx_vk.dll', 'amd_fidelityfx_vk-LICENSE.txt', 'launcher/background.png',
-                          'user/custom_configs/CUSA03220.json', 'patches/CUSA24769.xml',
-                          'server/shadnet/shadnet.exe') + tuple(relative for _, relative in GT7_TOOLS_FILES + GT7_RUNTIME_FILES):
+    if with_runtime:
+        tree_files = repository_tree_files(root)
+        for repository_file, relative in REPOSITORY_FILES + tuple(tree_files):
+            place(root / repository_file, relative)
+        place(launcher, 'RyGTLauncher.exe')
+        libraries, dlls = verify_runtime(runtime_folder, commit)
+        for library in libraries:
+            # The renderer's versions of RENDERER_LIBRARIES replace this source's: a runtime package leaves
+            # them to the renderer package.
+            if with_renderer or library.name not in RENDERER_LIBRARIES:
+                place(library, 'libs/' + library.name)
+        for dll in dlls:
+            place(dll, dll.name)
+            place(dll, 'converter/' + dll.name)  # the converter is linked against the same runtime
+        place(runtime_folder / 'ryty.exe', 'converter/ryty.exe')
+        place(runtime_folder / 'ryty-wheel-probe.exe', 'tools/ryty-wheel-probe.exe')
+    if with_renderer:
+        place(renderer, 'libs/libSceVideoOut.prx')
+        for library_name in RENDERER_LIBRARIES:
+            place(verify_artifact(renderer_folder, library_name, commit), 'libs/' + library_name)
+        for tool_name in RENDERER_TOOLS:
+            place(verify_artifact(renderer_folder, tool_name, commit), 'tools/' + tool_name)
+        place(verify_artifact(renderer_folder, DLSS_PLUGIN, commit), 'dlss/' + DLSS_PLUGIN)
+        place(verify_artifact(renderer_folder, DLSS_LICENSE, commit, 'data'), DLSS_LICENSE)
+    if with_runtime:
+        tools_folder = Path('artifacts/tools')
+        for file in TOOLS_FILES:
+            kind = 'pe' if file.endswith(('.exe', '.dll')) else 'data'
+            tool = verify_artifact(tools_folder, file, commit, kind)
+            if file.startswith('amd_fidelityfx_vk'):
+                place(tool, file)
+            else:
+                place(tool, 'tools/adcpatch/' + ('README.txt' if file == 'adcpatch-README.txt' else file))
+        for file, relative in GT7_TOOLS_FILES:
+            place(verify_artifact(tools_folder, file, commit), relative)
+        for file, relative in GT7_RUNTIME_FILES:
+            place(verify_artifact(runtime_folder, file, commit, 'pe' if file.endswith('.dll') else 'data'), relative)
+        check_package_imports(stage)
+    runtime_required = (('converter/ryty.exe', 'tools/adcpatch/adcpatch.exe', 'tools/ryty-wheel-probe.exe',
+                         'libs/libc.prx', 'libs/libkernel.prx', 'libs/libSceBluetoothHid.prx',
+                         'amd_fidelityfx_vk.dll', 'amd_fidelityfx_vk-LICENSE.txt', 'launcher/background.png',
+                         'user/custom_configs/CUSA03220.json', 'patches/CUSA24769.xml',
+                         'server/shadnet/shadnet.exe') + tuple(relative for _, relative in GT7_TOOLS_FILES + GT7_RUNTIME_FILES))
+    for name_required in (runtime_required if with_runtime else ()) + (RENDERER_PACKAGE_FILES if with_renderer else ()):
         if not (stage / name_required).is_file():
-            raise RuntimeError(f'Incomplete runtime package: {name_required}')
-    if sorted(file.name for file in (stage / 'dlss').iterdir()) != [DLSS_PLUGIN]:
+            raise RuntimeError(f'Incomplete {part} package: {name_required}')
+    if part == 'runtime' and any((stage / relative).exists() for relative in RENDERER_PACKAGE_FILES):
+        raise RuntimeError('The runtime package holds a renderer file')
+    if part == 'renderer' and sorted(file.relative_to(stage).as_posix() for file in stage.rglob('*') if file.is_file()) != sorted(RENDERER_PACKAGE_FILES):
+        raise RuntimeError('The renderer package holds other files than the renderer\'s')
+    if with_renderer and sorted(file.name for file in (stage / 'dlss').iterdir()) != [DLSS_PLUGIN]:
         raise RuntimeError('dlss\\ holds only ' + DLSS_PLUGIN + ' (NVIDIA\'s runtime is downloaded by the launcher)')
-    write_packaged_defaults(stage)
-    provenance = dict(commit=commit, flavor=flavor, channel=channel,
+    if with_runtime:
+        write_packaged_defaults(stage)
+    built = ((['RyGTLauncher.exe', 'converter/ryty.exe', 'tools/ryty-wheel-probe.exe', 'tools/adcpatch/adcpatch.exe'] +
+              sorted('libs/' + library.name for library in libraries if 'libs/' + library.name not in RENDERER_PACKAGE_FILES) +
+              [relative for _, relative in GT7_TOOLS_FILES]) if with_runtime else [])
+    if with_renderer:
+        built += [relative for relative in RENDERER_PACKAGE_FILES if relative != DLSS_LICENSE]
+    provenance = dict(commit=commit, flavor=flavor, channel=channel, part=part,
         configuration='RelWithDebInfo' if suffix else 'Release', optimized=True,
         pipeline=os.environ.get('CI_PIPELINE_URL'),
-        renderer_source=source, launcher_version=launcher_version(root), launcher_sha256=sha(launcher),
-        renderer_sha256=sha(renderer),
-        runtime_toolchain=json.loads((runtime_folder / 'RUNTIME-TOOLCHAIN.json').read_text(encoding='utf-8-sig')),
+        renderer_source=source, launcher_version=launcher_version(root) if with_runtime else None,
+        launcher_sha256=sha(launcher) if with_runtime else None,
+        renderer_sha256=sha(renderer) if with_renderer else None,
+        runtime_toolchain=json.loads((runtime_folder / 'RUNTIME-TOOLCHAIN.json').read_text(encoding='utf-8-sig')) if with_runtime else None,
         sources=dict(
-            built=['RyGTLauncher.exe', 'libs/libSceVideoOut.prx', 'converter/ryty.exe', 'tools/ryty-wheel-probe.exe',
-                   'tools/adcpatch/adcpatch.exe'] + sorted('libs/' + library.name for library in libraries) +
-                  ['libs/' + name for name in RENDERER_LIBRARIES if name not in {library.name for library in libraries}] +
-                  ['tools/' + name for name in RENDERER_TOOLS] + ['dlss/' + DLSS_PLUGIN] +
-                  [relative for _, relative in GT7_TOOLS_FILES],
-            toolchain=list(RUNTIME_DLLS) + ['converter/' + dll for dll in RUNTIME_DLLS] +
-                      [relative for _, relative in GT7_RUNTIME_FILES],
-            downloaded=['amd_fidelityfx_vk.dll', 'amd_fidelityfx_vk-LICENSE.txt', DLSS_LICENSE],
-            repository=[relative for _, relative in REPOSITORY_FILES + tuple(tree_files)]))
+            built=built,
+            toolchain=(list(RUNTIME_DLLS) + ['converter/' + dll for dll in RUNTIME_DLLS] +
+                       [relative for _, relative in GT7_RUNTIME_FILES]) if with_runtime else [],
+            downloaded=(['amd_fidelityfx_vk.dll', 'amd_fidelityfx_vk-LICENSE.txt'] if with_runtime else []) +
+                       ([DLSS_LICENSE] if with_renderer else []),
+            repository=[relative for _, relative in REPOSITORY_FILES + tuple(tree_files)] if with_runtime else []))
     if suffix:
         # PDBs are not packaged. Only these explicitly verified same-build
         # symbols are admitted to debug-ci, adjacent to their matching modules.
@@ -327,6 +365,14 @@ def assemble(commit, flavor, channel, suffix):
         shutil.copy2(layout, stage / 'investigation-build/frame-capture-layouts.json')
         provenance['symbols'] = [json.loads((folder / 'SYMBOLS.json').read_text(encoding='utf-8-sig')) for folder in (launcher_folder, renderer_folder)]
         shutil.copy2(root / 'ci/diagnostics/DEBUG-README.txt', stage / 'README.txt')
+    elif part == 'renderer':
+        pass  # only the renderer's files: unpacked over a RyGT folder, it replaces just those
+    elif part == 'runtime':
+        (stage / 'README.txt').write_text(
+            'RyGT Release CI runtime package (runtime)\n\nThe launcher, runtime libraries, converter and tools, without the\n'
+            'renderer (libs/libSceVideoOut.prx and the files built with it): those come from the shadGT\n'
+            'renderer package. The launcher\'s Nightly update installs both.\n'
+            'This is a CI artifact, not a tagged release. See BUILD_INFO.txt and SHA256SUMS.txt.\n', encoding='utf-8')
     else:
         (stage / 'README.txt').write_text(
             'RyGT Release CI package (ci)\n\nRun RyGTLauncher.exe to set up your own decrypted GT Sport CUSA03220 v1.69 and/or\n'
@@ -337,7 +383,8 @@ def assemble(commit, flavor, channel, suffix):
             'Everything here is built from this pipeline revision, downloaded pinned by checksum\n'
             '(AMD FidelityFX runtime) or taken from the source repository: see BUILD_INFO.txt.\n'
             'This is a CI artifact, not a tagged release. See BUILD_INFO.txt and SHA256SUMS.txt.\n', encoding='utf-8')
-    (stage / 'BUILD_INFO.txt').write_text(json.dumps(provenance, indent=2) + '\n', encoding='utf-8')
+    info_name, sums_name = (RENDERER_BUILD_INFO, RENDERER_SUMS) if part == 'renderer' else ('BUILD_INFO.txt', 'SHA256SUMS.txt')
+    (stage / info_name).write_text(json.dumps(provenance, indent=2) + '\n', encoding='utf-8')
     allowed_pdb = {'RyGTLauncher.pdb', 'libs/libSceVideoOut.pdb'} if suffix else set()
     for file in stage.rglob('*'):
         if file.is_file() and file.suffix.lower() == '.pdb' and file.relative_to(stage).as_posix() not in allowed_pdb:
@@ -345,7 +392,7 @@ def assemble(commit, flavor, channel, suffix):
         if file.is_file() and file.suffix.lower() in FORBIDDEN - {'.pdb'}:
             raise RuntimeError(f'Forbidden package content: {file.relative_to(stage)}')
     manifest = {file.relative_to(stage).as_posix(): sha(file) for file in sorted(stage.rglob('*')) if file.is_file()}
-    (stage / 'SHA256SUMS.txt').write_text(''.join(f'{digest}  {name}\n' for name, digest in manifest.items()), encoding='utf-8')
+    (stage / sums_name).write_text(''.join(f'{digest}  {name}\n' for name, digest in manifest.items()), encoding='utf-8')
     result = destination / (name + '.zip')
     with zipfile.ZipFile(result, 'x', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for file in sorted(stage.rglob('*')):
@@ -356,7 +403,7 @@ def assemble(commit, flavor, channel, suffix):
             if hashlib.sha256(archive.read(name + '/' + file)).hexdigest() != digest: raise RuntimeError('Packaged checksum mismatch')
     digest = sha(result)
     (destination / (result.name + '.sha256')).write_text(digest + '  ' + result.name + '\n')
-    return dict(channel=channel, flavor=flavor, archive=result.name, sha256=digest, files=len(manifest)+1, renderer_commit=expected)
+    return dict(channel=channel, flavor=flavor, part=part, archive=result.name, sha256=digest, files=len(manifest)+1, renderer_commit=expected)
 
 
 def package(channels=None):
@@ -372,10 +419,15 @@ def package(channels=None):
         raise ValueError('Invalid CI package channel selection')
     requested = set(channels)
     channels = tuple(channel for channel in valid_channels if channel in requested)
-    variants = [assemble(commit, *variant) for variant in VARIANTS if variant[1] in channels]
-    if len({variant['renderer_commit'] for variant in variants}) != 1:
+    part = os.environ.get('PACKAGE_PART') or 'full'
+    if part not in PARTS:
+        raise ValueError('Invalid package part')
+    # FEAT-RT-046: only the Release package is split; the diagnostics package stays complete.
+    variants = [assemble(commit, *variant, part=part if variant[1] == 'ci' else 'full') for variant in VARIANTS if variant[1] in channels]
+    if len({variant['renderer_commit'] for variant in variants if variant['part'] != 'runtime'}) > 1:
         raise RuntimeError('Renderer revisions differ between package variants')
-    (Path('dist') / 'CI-PACKAGES.json').write_text(json.dumps(dict(schema=2, commit=commit, renderer_commit=variants[0]['renderer_commit'], variants=variants), indent=2) + '\n')
+    renderer_commit = next((variant['renderer_commit'] for variant in variants if variant['renderer_commit']), None)
+    (Path('dist') / 'CI-PACKAGES.json').write_text(json.dumps(dict(schema=2, commit=commit, part=part, renderer_commit=renderer_commit, variants=variants), indent=2) + '\n')
     print(json.dumps(variants, indent=2))
 
 
