@@ -6,6 +6,20 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.27 - 2026-11-27
+
+* FIX-RT-044: the updater finds renderer changes. Nightly is the newest package from RyGT's runs or shadGT's
+  (each push to ryty-gpu builds one), and a nightly's version names its renderer too
+  ("nightly 1a2b3c4d, renderer 5e6f7a8b"), so a build of the same RyGT commit with a newer renderer is offered.
+  Releases tagged `rygt-<date>` are read as their date, like `gt-sport-<date>` ones.
+* FEAT-RT-045: a nightly's changelog lists the commits since the installed build, one bullet each with the
+  author in italics, under Renderer changes (shadGT) and Runtime changes (RyGT), instead of when and where it
+  was built. A merge shows its pull request's title. The installed renderer's commit is read from the
+  renderer itself, so a test renderer copied into the folder counts.
+* FEAT-RT-046: nightlies come in two parts, the runtime from RyGT's runs and the renderer from shadGT's, and the
+  updater installs each only when the folder has another one, with one backup, so Roll back puts back what the
+  update replaced. A nightly is shown by its runtime version ("nightly 0.3.27"), not its commits.
+
 ## 0.3.24 - 2026-11-26
 
 * FIX-RT-037: GT7's Graphics page no longer has the "AMD graphics fix" box. The renderer's own AMD fixes made

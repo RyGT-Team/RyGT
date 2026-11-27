@@ -34,7 +34,17 @@ jobs:
       commit: ${{ steps.source.outputs.commit }}
       renderer_commit: ${{ steps.source.outputs.renderer_commit }}
       needed: ${{ steps.source.outputs.needed }}
+      part: ${{ steps.part.outputs.part }}
+      package: ${{ steps.name.outputs.package }}
     steps:
+      # FEAT-RT-046: the Release nightly is split. A push to RyGT packages the runtime without the
+      # renderer; shadGT's runs (renderer_sha) package the renderer alone; the launcher's updater installs
+      # each from its own repository. A manual run here packages everything, for releases.
+      - name: Select package part
+        id: part
+        env:
+          PART: ${{ format('{0}', inputs.renderer_sha) != '' && 'renderer' || (github.event_name == 'workflow_dispatch' && 'full' || 'runtime') }}
+        run: echo "part=$PART" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: RyGT-Team/RyGT
@@ -51,14 +61,28 @@ jobs:
           RENDERER_OVERRIDE_SHA: ${{ inputs.renderer_sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 ci/github-registry/registry_ci.py resolve ci
+      - name: Name the package artifact
+        env:
+          PART: ${{ steps.part.outputs.part }}
+          COMMIT: ${{ steps.source.outputs.commit }}
+          RENDERER: ${{ steps.source.outputs.renderer_commit }}
+        run: |
+          case "$PART" in
+            runtime) name="runtime-$COMMIT" ;;
+            renderer) name="renderer-$RENDERER" ;;
+            *) name="ci-$COMMIT-renderer-$RENDERER" ;;
+          esac
+          echo "package=$name" >> "$GITHUB_OUTPUT"
+        id: name
   windows:
     needs: [source, tests]
-    if: needs.source.outputs.needed == 'true'
+    if: ${{ !cancelled() && needs.source.outputs.needed == 'true' && (needs.tests.result == 'success' || needs.tests.result == 'skipped') }}
     runs-on: windows-2022
     timeout-minutes: 180
     env:
       SOURCE_SHA: ${{ needs.source.outputs.commit }}
       RENDERER_SHA: ${{ needs.source.outputs.renderer_commit }}
+      PACKAGE_PART: ${{ needs.source.outputs.part }}
       RYGT_CI_ROOT: C:/rygt-ci/${{ github.run_id }}-release
     steps:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
@@ -94,10 +118,13 @@ jobs:
           python -m unittest discover -s ci/tests -p 'test_*.py'
           if ($LASTEXITCODE) { throw 'CI regression tests failed' }
           . ./ci/setup-hosted-windows.ps1
-          & ./ci/build-windows.ps1 -Target Launcher
-          & ./ci/build-windows.ps1 -Target Renderer -Flavor Release
-          & ./ci/build-windows.ps1 -Target Runtime
-          & ./ci/build-windows.ps1 -Target Tools
+          # FEAT-RT-046: a runtime package needs no renderer, a renderer package nothing else.
+          if ($env:PACKAGE_PART -ne 'renderer') { & ./ci/build-windows.ps1 -Target Launcher }
+          if ($env:PACKAGE_PART -ne 'runtime') { & ./ci/build-windows.ps1 -Target Renderer -Flavor Release }
+          if ($env:PACKAGE_PART -ne 'renderer') {
+            & ./ci/build-windows.ps1 -Target Runtime
+            & ./ci/build-windows.ps1 -Target Tools
+          }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: windows-release-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
@@ -110,7 +137,7 @@ jobs:
           retention-days: 7
   tests:
     needs: source
-    if: needs.source.outputs.needed == 'true'
+    if: needs.source.outputs.needed == 'true' && needs.source.outputs.part != 'renderer'
     runs-on: ubuntu-24.04
     env:
       SOURCE_SHA: ${{ needs.source.outputs.commit }}
@@ -143,10 +170,12 @@ jobs:
           retention-days: 7
   package:
     needs: [source, windows, tests]
+    if: ${{ !cancelled() && needs.windows.result == 'success' && (needs.tests.result == 'success' || needs.tests.result == 'skipped') }}
     runs-on: ubuntu-24.04
     env:
       SOURCE_SHA: ${{ needs.source.outputs.commit }}
       RENDERER_SHA: ${{ needs.source.outputs.renderer_commit }}
+      PACKAGE_PART: ${{ needs.source.outputs.part }}
       CI_CHANNEL: ci
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -180,10 +209,10 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         id: package_artifact
         with:
-          name: ci-${{ needs.source.outputs.commit }}-renderer-${{ needs.source.outputs.renderer_commit }}
+          name: ${{ needs.source.outputs.package }}
           path: |
-            source/dist/RyGT-ci-*.zip
-            source/dist/RyGT-ci-*.zip.sha256
+            source/dist/RyGT-*.zip
+            source/dist/RyGT-*.zip.sha256
           if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -202,3 +231,4 @@ jobs:
           echo "[Package and checksum]($PACKAGE_URL) | [Manifest]($MANIFEST_URL)" >> "$GITHUB_STEP_SUMMARY"
           echo "Source: [${SOURCE_SHA}](https://github.com/RyGT-Team/RyGT/commit/${SOURCE_SHA})" >> "$GITHUB_STEP_SUMMARY"
           echo "Renderer: [${RENDERER_SHA}](https://github.com/RyGT-Team/shadGT/commit/${RENDERER_SHA})" >> "$GITHUB_STEP_SUMMARY"
+          echo "Package part: ${PACKAGE_PART}" >> "$GITHUB_STEP_SUMMARY"

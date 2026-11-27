@@ -259,6 +259,37 @@ class PackageTests(unittest.TestCase):
                 other = 'debug-ci' if selected == 'ci' else 'ci'
                 self.assertFalse((Path('dist') / f'RyGT-{other}-{SHA[:8]}.zip').exists())
 
+    def test_split_nightly_parts(self):
+        # FEAT-RT-046: RyGT's runs package the runtime without the renderer's files, shadGT's runs only
+        # those, under their own listing; each needs only its own artifacts.
+        for part in ('runtime', 'renderer'):
+            with self.subTest(part=part), tempfile.TemporaryDirectory() as temp, contextlib.chdir(temp):
+                self.fixture()
+                shutil.rmtree(Path('artifacts/launcher-diagnostics'))
+                shutil.rmtree(Path('artifacts/renderer-diagnostics'))
+                if part == 'runtime':
+                    shutil.rmtree(Path('artifacts/renderer'))
+                else:
+                    for folder in ('launcher', 'runtime', 'tools'):
+                        shutil.rmtree(Path('artifacts') / folder)
+                env = {'CI_COMMIT_SHA': SHA, 'CI_CHANNEL': 'ci', 'PACKAGE_PART': part}
+                with patch.dict(os.environ, env, clear=True):
+                    pkg.package()
+                manifest = json.loads(Path('dist/CI-PACKAGES.json').read_text())
+                self.assertEqual(manifest['part'], part)
+                name = f'RyGT-runtime-{SHA[:8]}' if part == 'runtime' else f'RyGT-renderer-{RENDERER_SHA[:8]}'
+                with zipfile.ZipFile(Path('dist') / (name + '.zip')) as archive:
+                    files = {entry[len(name) + 1:] for entry in archive.namelist()}
+                    info = json.loads(archive.read(name + ('/BUILD_INFO.txt' if part == 'runtime' else '/RENDERER-BUILD_INFO.txt')))
+                self.assertEqual(info['part'], part)
+                if part == 'runtime':
+                    self.assertFalse(files & set(pkg.RENDERER_PACKAGE_FILES))
+                    self.assertIn('libs/libc.prx', files)
+                    self.assertIsNone(info['renderer_source'])
+                else:
+                    self.assertEqual(files, set(pkg.RENDERER_PACKAGE_FILES) | {'RENDERER-BUILD_INFO.txt', 'RENDERER-SHA256SUMS.txt'})
+                    self.assertTrue(info['renderer_source'].endswith(RENDERER_SHA + '\n'))
+
     def test_missing_or_wrong_symbols_and_source_revision_rejected(self):
         for mutation in ('identity', 'missing', 'commit'):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp, contextlib.chdir(temp):

@@ -311,6 +311,33 @@ namespace RyGT
             return null;
         }
 
+        /// FEAT-RT-045: the renderer's commit from its "RYGTREV1|describe|commit" string: the commit field, else
+        /// the hash in the describe ("4abad023-dirty", "gt7-2026-10-31-752-g817ddb6d"). Null without one.
+        /// A test renderer copied into a folder changes this but not BUILD_INFO.txt.
+        public static string RendererCommit(string root)
+        {
+            try
+            {
+                byte[] data = File.ReadAllBytes(Path.Combine(root, RendererFile));
+                for (int i = 0; i + 9 < data.Length; ++i)
+                {
+                    if (data[i] != (byte)'R' || !StartsWith(data, i, "RYGTREV1|")) continue;
+                    int end = i;
+                    while (end < data.Length && data[end] != 0 && end - i < 512) ++end;
+                    var fields = Encoding.ASCII.GetString(data, i, end - i).Split('|');
+                    if (fields.Length < 3) continue;
+                    if (System.Text.RegularExpressions.Regex.IsMatch(fields[2], "^[0-9a-f]{40}$")) return fields[2];
+                    // A RyGT release describe (gt-sport-..., rygt-...: FIX-GTS-419 before FIX-SGT-212) names a RyGT
+                    // commit, not the renderer's.
+                    if (fields[1].StartsWith("gt-sport-", StringComparison.Ordinal) || fields[1].StartsWith("rygt-", StringComparison.Ordinal)) continue;
+                    var hash = System.Text.RegularExpressions.Regex.Match(fields[1], "(?:^|-g)([0-9a-f]{7,40})(?:-dirty)?$");
+                    if (hash.Success) return hash.Groups[1].Value;
+                }
+            }
+            catch { }
+            return null;
+        }
+
         static bool IsSwitchName(string text)
         {
             if (!CustomEnvironment.IsValidName(text) || text.ToUpperInvariant() != text) return false;

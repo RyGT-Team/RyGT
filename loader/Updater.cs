@@ -22,10 +22,17 @@ namespace RyGT
     /// A build the launcher can update to.
     class ReleaseInfo
     {
-        /// "2026-11-10" for a release, "ci-1a2b3c4d" for a nightly.
+        /// "2026-11-10" for a release, "ci-1a2b3c4d" for a nightly (FIX-RT-044: "ci-1a2b3c4d+5e6f7a8b", with
+        /// the renderer's commit after the "+").
         public string Version, Tag, Name, Notes, ZipName, ZipUrl, Sha256;
         /// FIX-GTS-286: the commit the build is from (a nightly's run, a release's tag), or null.
         public string Commit;
+        /// FIX-RT-044: a nightly's renderer (shadGT) commit, from its artifact's name; null for a release.
+        public string RendererCommit;
+        /// FIX-RT-044: when a nightly's run started (UTC, ISO 8601); null for a release.
+        public string Built;
+        /// FEAT-RT-046: a nightly's RendererZipUrl, when it has one (see above).
+        public string RendererZipUrl;
         /// A nightly: the download is a GitHub Actions artifact (a zip holding the package zip and
         /// its .sha256), which also gives the checksum.
         public bool Artifact;
@@ -76,10 +83,26 @@ namespace RyGT
     {
         // ---- Where the releases are.
         const string Repository = "RyGT-Team/RyGT", Workflow = "ci-package-release.yml", Branch = "development";
-        const string ArtifactPrefix = "ci-", NightlyPrefix = "RyGT-ci-"; // FIX-RT-015: RyGTS-ci- before
+        // FIX-RT-044: renderer changes are packaged by shadGT's own runs (its ci-package.yml calls RyGT's
+        // package workflow for each ryty-gpu push), which RyGT's run list doesn't show. The nightly is the
+        // newer of the two.
+        const string RendererRepository = "RyGT-Team/shadGT", RendererWorkflow = "ci-package.yml", RendererBranch = "ryty-gpu";
+        const string NightlyPrefix = "RyGT-ci-"; // FIX-RT-015: RyGTS-ci- before
+        // The package artifact both repositories' runs upload: ci-<RyGT commit>-renderer-<shadGT commit>.
+        static readonly Regex NightlyArtifact = new Regex("^ci-([0-9a-f]{40})-renderer-([0-9a-f]{40})$");
+        // FEAT-RT-046: a split nightly: RyGT's runs upload runtime-<RyGT commit> (everything but the renderer),
+        // shadGT's renderer-<shadGT commit> (only the renderer's files, listed in RENDERER-SHA256SUMS.txt).
+        static readonly Regex RuntimeArtifact = new Regex("^runtime-([0-9a-f]{40})$"), RendererArtifact = new Regex("^renderer-([0-9a-f]{40})$");
+        // What the renderer package installs (ci/package.py RENDERER_PACKAGE_FILES): a runtime package
+        // never replaces these, a renderer package nothing else.
+        static readonly string[] RendererFiles = { @"libs\libSceVideoOut.prx", @"libs\libSceAjm.prx", @"libs\libSceNgs2.prx",
+                                                   @"libs\libSceAudio3d.prx", @"libs\libSceZlib.prx", @"libs\libSceDiscMap.prx",
+                                                   @"libs\libSceScreenShot.prx", @"libs\libSceNpAuth.prx", @"tools\ryty-feel-test.exe",
+                                                   @"dlss\ryGT_dlss.dll", "NVIDIA-RTX-SDKs-LICENSE.txt" };
+        static bool IsRendererFile(string relative) { return RendererFiles.Contains(relative.Replace('/', '\\'), StringComparer.OrdinalIgnoreCase); }
         // FIX-GTS-286: the release tags ("gt-sport-2026-11-15") and package zips ("GTSport-Ryty-shadGT-2026-11-15.zip")
-        // as they are published.
-        static readonly string[] TagPrefixes = { "gt-sport-", "gts-" }, PackagePrefixes = { "GTSport-", "RyGTS-", "RyGT-" };
+        // as they are published. FIX-RT-044: RyGT's releases are tagged rygt-<date> ("rygt-2026-11-23").
+        static readonly string[] TagPrefixes = { "rygt-", "gt-sport-", "gts-" }, PackagePrefixes = { "GTSport-", "RyGTS-", "RyGT-" };
         const string Product = "RyGT"; // FIX-RT-015: packages are RyGT-<version> (RyGTS-<version> before)
         // FEAT-GTS-291: the launcher started after an update (RyGTS.exe and ryGT7's RyGT7.exe before it).
         public const string LauncherExe = "RyGTLauncher.exe";
@@ -125,13 +148,59 @@ namespace RyGT
                     object version, recorded;
                     if (record != null && record.TryGetValue("version", out version) && record.TryGetValue("build", out recorded) &&
                         string.Equals(recorded as string, identity, StringComparison.OrdinalIgnoreCase) && version is string)
-                        return (string)version;
+                        // FEAT-RT-046: a nightly's renderer is installed apart (or copied in by hand), so it is
+                        // read from the folder, not from the record.
+                        return Labelled(WithRenderer(((string)version).Split('+')[0], root), root);
                 }
-                if (identity.StartsWith("commit:")) return "ci-" + identity.Substring(7, 8);
+                if (identity.StartsWith("commit:")) return Labelled(WithRenderer("ci-" + identity.Substring(7, 8), root), root);
                 var match = Regex.Match(identity, "^" + Regex.Escape(Product) + @"S?-(.+?)(-prerelease)?$"); // RyGT- or the older RyGTS-
-                return match.Success ? match.Groups[1].Value : null;
+                return match.Success ? Labelled(WithRenderer(match.Groups[1].Value, root), root) : null;
             }
             catch { return null; }
+        }
+
+        /// FEAT-RT-046: the version a nightly is shown as: its runtime's (launcher's) version, "0.3.27", not
+        /// its commits. Learned from the installed BUILD_INFO.txt and from a nightly's loader/Version.cs.
+        static readonly Dictionary<string, string> Labels = new Dictionary<string, string>();
+
+        static string Labelled(string version, string root)
+        {
+            if (version != null && version.StartsWith("ci-"))
+            {
+                try
+                {
+                    var info = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(Path.Combine(root, "BUILD_INFO.txt"))) as Dictionary<string, object>;
+                    object label;
+                    if (info != null && info.TryGetValue("launcher_version", out label) && label is string && ((string)label).Length > 0)
+                        lock (Labels) Labels[version] = (string)label;
+                }
+                catch { }
+            }
+            return version;
+        }
+
+        /// The runtime version at a RyGT commit: LauncherVersion.Value in its loader/Version.cs, or null.
+        static string RuntimeVersionAt(string commit)
+        {
+            try
+            {
+                using (var client = Client())
+                {
+                    string text = client.DownloadString("https://raw.githubusercontent.com/" + Repository + "/" + commit + "/loader/Version.cs");
+                    var match = Regex.Match(text, "public const string Value = \"([^\"]+)\";");
+                    return match.Success ? match.Groups[1].Value : null;
+                }
+            }
+            catch { return null; }
+        }
+
+        /// FIX-RT-044: a nightly's version names its renderer too ("ci-1a2b3c4d+5e6f7a8b"), so builds of one
+        /// RyGT commit with different renderers are told apart.
+        static string WithRenderer(string version, string root)
+        {
+            if (!version.StartsWith("ci-") || version.Contains("+")) return version;
+            string renderer = BuildRendererCommit(root);
+            return renderer == null ? version : version + "+" + renderer.Substring(0, Math.Min(8, renderer.Length));
         }
 
         /// The folder's release as shown to the player: the installed version, else the version in another
@@ -184,11 +253,41 @@ namespace RyGT
             catch { return null; }
         }
 
-        /// A version as shown to the player: a nightly ("ci-1a2b3c4d") as "nightly 1a2b3c4d".
+        /// FIX-RT-044: BUILD_INFO.txt's renderer commit: the second line of renderer_source
+        /// ("https://github.com/RyGT-Team/shadGT.git\n<commit>"), or null.
+        static string BuildRendererCommit(string root)
+        {
+            // FEAT-RT-045: the renderer's own commit first (its RYGTREV1 string): a test renderer copied into
+            // the folder leaves BUILD_INFO.txt behind.
+            string own = SwitchWalker.RendererCommit(root);
+            if (own != null) return own;
+            try
+            {
+                string path = Path.Combine(root, "BUILD_INFO.txt");
+                if (!File.Exists(path)) return null;
+                var info = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(path)) as Dictionary<string, object>;
+                object source;
+                if (info == null || !info.TryGetValue("renderer_source", out source)) return null;
+                string[] lines = (source as string ?? "").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                string text = lines.Length == 2 ? lines[1].Trim() : "";
+                return Regex.IsMatch(text, "^[0-9a-f]{40}$") ? text : null;
+            }
+            catch { return null; }
+        }
+
+        /// A version as shown to the player: a nightly ("ci-1a2b3c4d") as "nightly 1a2b3c4d", and
+        /// FIX-RT-044 "ci-1a2b3c4d+5e6f7a8b" as "nightly 1a2b3c4d, renderer 5e6f7a8b".
         public static string Display(string version)
         {
             if (version == null) return "";
-            return version.StartsWith("ci-") ? "nightly " + version.Substring(3) : version;
+            if (!version.StartsWith("ci-")) return version;
+            string label;
+            lock (Labels)
+                if (Labels.TryGetValue(version, out label)) return "nightly " + label; // FEAT-RT-046
+            int plus = version.IndexOf('+');
+            if (plus == 3) return "nightly renderer " + version.Substring(4); // FEAT-RT-046: no runtime part
+            return plus < 0 ? "nightly " + version.Substring(3)
+                            : "nightly " + version.Substring(3, plus - 3) + ", renderer " + version.Substring(plus + 1);
         }
 
         /// Releases are dates with an optional letter for a hotfix (2026-10-27b), so they sort as
@@ -200,10 +299,28 @@ namespace RyGT
         {
             if (candidate == null) return false;
             string commit = BuildCommit(root);
-            if (commit != null && !string.IsNullOrEmpty(candidate.Commit) &&
-                (candidate.Commit.StartsWith(commit, StringComparison.OrdinalIgnoreCase) || commit.StartsWith(candidate.Commit, StringComparison.OrdinalIgnoreCase)))
-                return false;
+            // FEAT-RT-046: a nightly with only a renderer part (RyGT's runtime packages expired) is newer only by
+            // its renderer.
+            if (candidate.Artifact && string.IsNullOrEmpty(candidate.Commit))
+            {
+                string installedRenderer = BuildRendererCommit(root);
+                return !string.IsNullOrEmpty(candidate.RendererCommit) && (installedRenderer == null || !SameCommit(candidate.RendererCommit, installedRenderer));
+            }
+            if (commit != null && !string.IsNullOrEmpty(candidate.Commit) && SameCommit(candidate.Commit, commit))
+            {
+                // FIX-RT-044: the same RyGT commit with another renderer is a newer build (a renderer change
+                // packaged by shadGT's run); with the same renderer, or one not known, it is this build.
+                // FEAT-RT-046: a folder whose renderer is not known gets the nightly's (installed apart).
+                string renderer = BuildRendererCommit(root);
+                return !string.IsNullOrEmpty(candidate.RendererCommit) && (renderer == null || !SameCommit(candidate.RendererCommit, renderer));
+            }
             return IsNewer(candidate.Version, installed);
+        }
+
+        /// Two commits, either one possibly shortened.
+        static bool SameCommit(string a, string b)
+        {
+            return a.StartsWith(b, StringComparison.OrdinalIgnoreCase) || b.StartsWith(a, StringComparison.OrdinalIgnoreCase);
         }
 
         public static bool IsNewer(string candidate, string installed)
@@ -251,7 +368,7 @@ namespace RyGT
                 string tag = release["tag_name"] as string ?? "";
                 var info = new ReleaseInfo
                 {
-                    Tag = tag, Version = WithoutPrefix(tag, TagPrefixes), Prerelease = pre,
+                    Tag = tag, Version = TagVersion(tag), Prerelease = pre,
                     Name = release["name"] as string ?? tag, Notes = release["body"] as string ?? ""
                 };
                 string shaUrl = null;
@@ -291,36 +408,188 @@ namespace RyGT
             return null;
         }
 
-        /// The newest successful CI build on the branch with a package artifact that has not expired.
+        /// One part of a nightly: a run's package artifact. Commit and RendererCommit are what it holds
+        /// (a complete package from before FEAT-RT-046 holds both).
+        sealed class NightlyPart
+        {
+            public string Commit, RendererCommit, ZipUrl, Built;
+            public Dictionary<string, object> Run;
+        }
+
+        /// The newest successful CI build with a package artifact that has not expired. FIX-RT-044: from
+        /// RyGT's runs (a push to development) and shadGT's (a push to ryty-gpu). FEAT-RT-046: the newest
+        /// runtime package from RyGT's runs and the newest renderer package from shadGT's, installed apart.
         static ReleaseInfo LatestNightly()
         {
-            var runs = Json("https://api.github.com/repos/" + Repository + "/actions/workflows/" + Workflow +
-                            "/runs?branch=" + Branch + "&status=success&per_page=5") as Dictionary<string, object>;
+            NightlyPart runtime = null, renderer = null;
+            Exception failed = null;
+            try { runtime = LatestPart(Repository, Workflow, Branch, false); }
+            catch (Exception e) { failed = e; }
+            try { renderer = LatestPart(RendererRepository, RendererWorkflow, RendererBranch, true); }
+            catch (Exception e) { failed = failed ?? e; }
+            if (runtime == null && renderer == null)
+            {
+                if (failed != null) throw failed;
+                return null;
+            }
+            // A complete package (before FEAT-RT-046) gives the part the other repository has none of.
+            if (runtime == null && renderer.Commit != null) runtime = renderer;
+            if (renderer == null && runtime.RendererCommit != null) renderer = runtime;
+            string commit = runtime != null ? runtime.Commit : null, rendererCommit = renderer != null ? renderer.RendererCommit : null;
+            string version = "ci-" + (commit != null ? commit.Substring(0, 8) : "") + (rendererCommit != null ? "+" + rendererCommit.Substring(0, 8) : "");
+            string label = commit != null ? RuntimeVersionAt(commit) : null;
+            if (label != null) lock (Labels) Labels[version] = label;
+            var notes = new List<string>();
+            if (renderer != null) notes.Add(CommitNotes(renderer.Run, true, null));
+            if (runtime != null && runtime != renderer) notes.Add(CommitNotes(runtime.Run, false, null));
+            string built = new[] { runtime != null ? runtime.Built : null, renderer != null ? renderer.Built : null }.Where(b => b != null).Max();
+            return new ReleaseInfo
+            {
+                Artifact = true, Version = version, Tag = commit ?? rendererCommit, Built = built, Commit = commit, RendererCommit = rendererCommit,
+                Name = "RyGT " + Display(version),
+                Notes = notes.Any(n => n != null) ? string.Join("\n", notes.Where(n => n != null)) : "Built " + (built ?? "") + ".",
+                ZipName = NightlyPrefix + (commit ?? rendererCommit).Substring(0, 8) + ".zip",
+                ZipUrl = runtime != null ? runtime.ZipUrl : null,
+                RendererZipUrl = renderer != null ? renderer.ZipUrl : null
+            };
+        }
+
+        /// The newest of one repository's package runs with a package for its own commit: RyGT's runtime
+        /// package (or a complete one), shadGT's renderer package (or a complete one naming it the renderer).
+        static NightlyPart LatestPart(string repository, string workflow, string branch, bool rendererRuns)
+        {
+            var runs = Json("https://api.github.com/repos/" + repository + "/actions/workflows/" + workflow +
+                            "/runs?branch=" + branch + "&status=success&per_page=5") as Dictionary<string, object>;
             object list;
             if (runs == null || !runs.TryGetValue("workflow_runs", out list)) return null;
             foreach (Dictionary<string, object> run in ((object[])list).OfType<Dictionary<string, object>>())
             {
-                string id = Convert.ToString(run["id"]), sha = run["head_sha"] as string ?? "";
-                if (sha.Length < 8) continue;
-                var artifacts = Json("https://api.github.com/repos/" + Repository + "/actions/runs/" + id + "/artifacts") as Dictionary<string, object>;
+                string id = Convert.ToString(run["id"]), head = run["head_sha"] as string ?? "";
+                if (head.Length < 8) continue;
+                var artifacts = Json("https://api.github.com/repos/" + repository + "/actions/runs/" + id + "/artifacts") as Dictionary<string, object>;
                 object items;
                 if (artifacts == null || !artifacts.TryGetValue("artifacts", out items)) continue;
+                NightlyPart found = null;
                 foreach (Dictionary<string, object> artifact in ((object[])items).OfType<Dictionary<string, object>>())
                 {
                     string name = artifact["name"] as string ?? "";
-                    if (!name.StartsWith(ArtifactPrefix + sha, StringComparison.Ordinal) || true.Equals(artifact["expired"])) continue;
-                    string when = (run["created_at"] as string ?? "").Replace('T', ' ').TrimEnd('Z');
-                    return new ReleaseInfo
+                    if (true.Equals(artifact["expired"])) continue;
+                    string url = "https://nightly.link/" + repository + "/actions/runs/" + id + "/" + name + ".zip";
+                    var part = (rendererRuns ? RendererArtifact : RuntimeArtifact).Match(name);
+                    if (part.Success && part.Groups[1].Value == head)
                     {
-                        Artifact = true, Version = "ci-" + sha.Substring(0, 8), Tag = sha, Commit = sha, Name = "RyGT nightly " + sha.Substring(0, 8),
-                        Notes = "Built " + (when.Length >= 16 ? when.Substring(0, 16) + " UTC" : when) + " from " + Branch + ".",
-                        ZipName = NightlyPrefix + sha.Substring(0, 8) + ".zip",
-                        ZipUrl = "https://nightly.link/" + Repository + "/actions/runs/" + id + "/" + name + ".zip"
-                    };
+                        found = rendererRuns ? new NightlyPart { RendererCommit = head, ZipUrl = url } : new NightlyPart { Commit = head, ZipUrl = url };
+                        break; // a split package is preferred
+                    }
+                    var whole = NightlyArtifact.Match(name);
+                    if (found == null && whole.Success && (rendererRuns ? whole.Groups[2].Value : whole.Groups[1].Value) == head)
+                        found = new NightlyPart { Commit = whole.Groups[1].Value, RendererCommit = whole.Groups[2].Value, ZipUrl = url };
                 }
+                if (found == null) continue;
+                found.Run = run;
+                found.Built = run["created_at"] as string ?? "";
+                return found;
             }
             return null;
         }
+
+        /// FEAT-RT-045: a nightly's changelog is a list of commits, one bullet each: the commit's title and
+        /// its author's name in parentheses ("- GS/HW: fix page widths (refraction)"). Without the commits
+        /// since the installed build (ChangesSince), the run's own commit; the fallback without one.
+        /// Under the heading of the repository the run is in (a shadGT run's commit is a renderer change).
+        public static string CommitNotes(Dictionary<string, object> run, bool rendererRun, string fallback)
+        {
+            var commit = run.ContainsKey("head_commit") ? run["head_commit"] as Dictionary<string, object> : null;
+            string line = commit == null ? null : CommitLine(commit);
+            return line == null ? fallback : (rendererRun ? RendererHeading : RuntimeHeading) + "\n- " + line;
+        }
+
+        /// The headings above a nightly's commits in the Changelog window: shadGT's, then RyGT's.
+        const string RendererHeading = "## Renderer changes:", RuntimeHeading = "## Runtime changes:";
+
+        /// "title *(author)*" for a commit object (GitHub's head_commit, or a commits list entry's "commit"):
+        /// a merge's title is its pull request's title (the line after "Merge pull request #..."). The
+        /// author's name only, never the e-mail. Null without a title.
+        static string CommitLine(Dictionary<string, object> commit)
+        {
+            string message = commit.ContainsKey("message") ? commit["message"] as string ?? "" : "";
+            var lines = message.Replace("\r", "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+            if (lines.Count == 0) return null;
+            string title = lines[0];
+            if (title.StartsWith("Merge pull request #", StringComparison.Ordinal))
+            {
+                string body = lines.Skip(1).FirstOrDefault(l => !Regex.IsMatch(l, @"^(Co-Authored-By|Signed-off-by):", RegexOptions.IgnoreCase));
+                if (body != null) title = body;
+            }
+            var author = commit.ContainsKey("author") ? commit["author"] as Dictionary<string, object> : null;
+            string name = author != null && author.ContainsKey("name") ? (author["name"] as string ?? "").Trim() : "";
+            return name.Length > 0 ? title + " *(" + name + ")*" : title; // the Changelog window shows it in italics
+        }
+
+        /// FEAT-RT-045: a newer nightly's notes become every commit since the installed build, newest first,
+        /// the renderer's under one heading and RyGT's (the runtime and launcher) under another (two GitHub
+        /// compare requests), as the commits the update brings.
+        /// Merge commits are left out: their pull requests' commits are listed. The notes stay as they are
+        /// when the installed commits are not known or GitHub doesn't answer.
+        public static void ChangesSince(ReleaseInfo release, string root)
+        {
+            if (release == null || !release.Artifact) return;
+            try
+            {
+                // Each repository on its own: one GitHub can't compare (a build from an unknown commit,
+                // such as a local one) still leaves the other's list.
+                var renderer = new List<string>();
+                var runtime = new List<string>();
+                try { renderer = CompareLines(RendererRepository, BuildRendererCommit(root), release.RendererCommit); } catch { }
+                try { runtime = CompareLines(Repository, BuildCommit(root), release.Commit); } catch { }
+                var notes = new List<string>();
+                if (renderer.Count > 0) notes.Add(RendererHeading + "\n" + string.Join("\n", renderer.Select(l => "- " + l)));
+                if (runtime.Count > 0) notes.Add(RuntimeHeading + "\n" + string.Join("\n", runtime.Select(l => "- " + l)));
+                if (notes.Count > 0) release.Notes = string.Join("\n", notes);
+            }
+            catch { }
+        }
+
+        static List<string> CompareLines(string repository, string installed, string candidate)
+        {
+            var lines = new List<string>();
+            if (string.IsNullOrEmpty(installed) || string.IsNullOrEmpty(candidate) || SameCommit(installed, candidate) ||
+                installed.Trim('0').Length == 0) // a local build's BUILD_INFO.txt says 0000...
+                return lines;
+            // GitHub lists a compare's commits oldest first, 100 a page (and only 250 without pages), so a
+            // long range needs its last pages for the newest commits: at most the newest 200, then a line
+            // for how many earlier ones are not listed.
+            string url = "https://api.github.com/repos/" + repository + "/compare/" + installed + "..." + candidate + "?per_page=100&page=";
+            var first = Json(url + "1") as Dictionary<string, object>;
+            object value;
+            if (first == null || !first.TryGetValue("commits", out value)) return lines;
+            var entries = ((object[])value).OfType<Dictionary<string, object>>().ToList();
+            int ahead = first.TryGetValue("ahead_by", out value) ? Convert.ToInt32(value) : entries.Count;
+            int pages = (ahead + 99) / 100;
+            if (pages > 1)
+            {
+                entries.Clear();
+                for (int page = Math.Max(1, pages - 1); page <= pages; ++page)
+                {
+                    var part = Json(url + page) as Dictionary<string, object>;
+                    if (part != null && part.TryGetValue("commits", out value)) entries.AddRange(((object[])value).OfType<Dictionary<string, object>>());
+                }
+            }
+            foreach (Dictionary<string, object> entry in Enumerable.Reverse(entries))
+            {
+                var parents = entry.ContainsKey("parents") ? entry["parents"] as object[] : null;
+                if (parents != null && parents.Length > 1) continue;
+                var commit = entry.ContainsKey("commit") ? entry["commit"] as Dictionary<string, object> : null;
+                string line = commit == null ? null : CommitLine(commit);
+                if (line != null) lines.Add(line);
+            }
+            if (ahead > entries.Count)
+                lines.Add("... and " + (ahead - entries.Count) + " earlier commits");
+            return lines;
+        }
+
+        /// A release's version: its tag without the prefix ("rygt-2026-11-23" is "2026-11-23").
+        public static string TagVersion(string tag) { return WithoutPrefix(tag, TagPrefixes); }
 
         static string WithoutPrefix(string tag, string[] prefixes)
         {
@@ -400,11 +669,16 @@ namespace RyGT
 
         /// The package's files and their SHA-256, from manifest.json ("files": path, sha256) or
         /// SHA256SUMS.txt ("<sha256>  <path>").
+        const string RendererSums = "RENDERER-SHA256SUMS.txt", RendererInfo = "RENDERER-BUILD_INFO.txt";
+
         static List<KeyValuePair<string, string>> PackageFiles(string packageRoot)
         {
             var files = new List<KeyValuePair<string, string>>();
             string manifestPath = Path.Combine(packageRoot, "manifest.json");
             string sumsPath = Path.Combine(packageRoot, "SHA256SUMS.txt");
+            // FEAT-RT-046: a renderer package lists its files apart, so it never replaces the folder's own list.
+            if (!File.Exists(manifestPath) && !File.Exists(sumsPath) && File.Exists(Path.Combine(packageRoot, RendererSums)))
+                sumsPath = Path.Combine(packageRoot, RendererSums);
             if (File.Exists(manifestPath))
             {
                 var manifest = (Dictionary<string, object>)new JavaScriptSerializer { MaxJsonLength = 16 << 20 }.DeserializeObject(File.ReadAllText(manifestPath));
@@ -419,7 +693,7 @@ namespace RyGT
                     var match = Regex.Match(line, @"^([0-9a-fA-F]{64}) [ *](.+)$");
                     if (match.Success) files.Add(new KeyValuePair<string, string>(match.Groups[2].Value, match.Groups[1].Value.ToLowerInvariant()));
                 }
-                files.Add(new KeyValuePair<string, string>("SHA256SUMS.txt", null));
+                files.Add(new KeyValuePair<string, string>(Path.GetFileName(sumsPath), null));
             }
             else throw new InvalidDataException("The package lists no files (no manifest.json or SHA256SUMS.txt).");
             return files;
@@ -427,70 +701,50 @@ namespace RyGT
 
         /// Downloads the build, checks it and installs its program files over root, the folder of the
         /// game with the title ID titleId. progress gets a line of text and a fraction (or -1). The
-        /// replaced files go to update\backup-<old version>.
+        /// replaced files go to update\backup-<old version>. FEAT-RT-046: a nightly's runtime and renderer
+        /// packages are installed together, each only when the folder has another one, with one backup,
+        /// so a roll back puts back both (or the one) as they were.
         public static void Install(string root, string titleId, ReleaseInfo release, Action<string, double> progress)
         {
             if (!release.Artifact && string.IsNullOrEmpty(release.Sha256))
                 throw new InvalidDataException("The release gives no SHA-256 for its package, so it can't be checked.");
             CheckGameClosed(root);
             CleanUp(root);
-            string folder = UpdateFolder(root), download = Path.Combine(folder, "download"), staging = Path.Combine(folder, "staging");
-            Directory.CreateDirectory(download);
-            string zip = Path.Combine(download, release.ZipName);
-            string expected = release.Sha256;
-
-            if (release.Artifact)
+            string folder = UpdateFolder(root);
+            Directory.CreateDirectory(Path.Combine(folder, "download"));
+            // relative path -> the file to install there
+            var sources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (!release.Artifact)
             {
-                // A nightly: the artifact holds the package zip and its .sha256.
-                string artifact = Path.Combine(download, "artifact.zip");
-                Download(release.ZipUrl, artifact, release.ZipName, progress);
-                progress("Unpacking the download...", -1);
-                string unpacked = Path.Combine(download, "artifact");
-                ZipFile.ExtractToDirectory(artifact, unpacked);
-                string inner = Directory.GetFiles(unpacked, NightlyPrefix + "*.zip", SearchOption.AllDirectories).FirstOrDefault();
-                if (inner == null || !File.Exists(inner + ".sha256")) throw new InvalidDataException("The nightly has no package zip and checksum.");
-                expected = File.ReadAllText(inner + ".sha256").Split(' ')[0].Trim().ToLowerInvariant();
-                File.Move(inner, zip);
+                foreach (var file in Unpack(root, titleId, release.ZipUrl, release.ZipName, release.Sha256, "release", PackagePart.All, progress))
+                    sources[file.Key] = file.Value;
             }
             else
             {
-                Download(release.ZipUrl, zip, release.ZipName, progress);
+                string installedCommit = BuildCommit(root), installedRenderer = BuildRendererCommit(root);
+                bool runtime = release.ZipUrl != null && (installedCommit == null || release.Commit == null || !SameCommit(release.Commit, installedCommit));
+                bool renderer = release.RendererZipUrl != null &&
+                                (installedRenderer == null || release.RendererCommit == null || !SameCommit(release.RendererCommit, installedRenderer));
+                if (!runtime && !renderer) { runtime = release.ZipUrl != null; renderer = release.RendererZipUrl != null; }
+                if (runtime && renderer && release.ZipUrl == release.RendererZipUrl)
+                {
+                    // One complete package (before FEAT-RT-046) holds both.
+                    foreach (var file in Unpack(root, titleId, release.ZipUrl, release.ZipName, null, "nightly", PackagePart.All, progress))
+                        sources[file.Key] = file.Value;
+                }
+                else
+                {
+                    if (runtime)
+                        foreach (var file in Unpack(root, titleId, release.ZipUrl, release.ZipName, null, "runtime", PackagePart.Runtime, progress))
+                            sources[file.Key] = file.Value;
+                    if (renderer)
+                        foreach (var file in Unpack(root, titleId, release.RendererZipUrl, "renderer.zip", null, "renderer", PackagePart.Renderer, progress))
+                            sources[file.Key] = file.Value;
+                }
             }
-            if (string.IsNullOrEmpty(expected) || !Regex.IsMatch(expected, "^[0-9a-f]{64}$"))
-                throw new InvalidDataException("The package's SHA-256 is not given, so it can't be checked.");
-
-            progress("Checking the download...", -1);
-            string sha = Sha256Of(zip);
-            if (sha != expected)
-                throw new InvalidDataException("The download is damaged (SHA-256 " + sha + ", expected " + expected + ").");
-
-            progress("Unpacking...", -1);
-            ZipFile.ExtractToDirectory(zip, staging);
-            // The package's top folder: the one holding manifest.json or SHA256SUMS.txt.
-            string listing = Directory.GetFiles(staging, "manifest.json", SearchOption.AllDirectories)
-                                      .Concat(Directory.GetFiles(staging, "SHA256SUMS.txt", SearchOption.AllDirectories))
-                                      .OrderBy(p => p.Length).FirstOrDefault();
-            if (listing == null) throw new InvalidDataException("The package lists no files.");
-            string packageRoot = Path.GetDirectoryName(listing);
-            var listed = PackageFiles(packageRoot);
-            // FEAT-GTS-291: only a package made for the folder's game, which ships that game's files
-            // (GT Sport's user\custom_configs\CUSA03220.json, GT7's patches\CUSA24769.xml): another
-            // game's runtime over it would break it.
-            if (!PackageIsFor(listed.Select(f => f.Key), titleId))
-                throw new InvalidDataException("This package has no files for " + titleId + ", so it can't update this folder. " +
-                                               "Nothing was changed.");
-            var files = new List<string>();
-            foreach (var file in listed)
-            {
-                string relative = file.Key.Replace('/', '\\');
-                if (IsProtected(relative)) continue;
-                string source = Path.Combine(packageRoot, relative);
-                if (!File.Exists(source) || (file.Value != null && Sha256Of(source) != file.Value))
-                    throw new InvalidDataException("The package's " + relative + " doesn't match its checksum list.");
-                files.Add(relative);
-            }
-            files = files.Where(f => !VersionFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
-                         .Concat(files.Where(f => VersionFiles.Contains(f, StringComparer.OrdinalIgnoreCase))).ToList();
+            if (sources.Count == 0) throw new InvalidDataException("The update has no files to install.");
+            var files = sources.Keys.Where(f => !VersionFiles.Contains(f, StringComparer.OrdinalIgnoreCase))
+                               .Concat(sources.Keys.Where(f => VersionFiles.Contains(f, StringComparer.OrdinalIgnoreCase))).ToList();
 
             string installed = InstalledVersion(root) ?? "unknown";
             string backup = Path.Combine(folder, "backup-" + installed);
@@ -504,7 +758,7 @@ namespace RyGT
                 foreach (string relative in files)
                 {
                     progress("Installing " + relative, ++n / (double)files.Count);
-                    string target = Path.Combine(root, relative), source = Path.Combine(packageRoot, relative);
+                    string target = Path.Combine(root, relative), source = sources[relative];
                     if (File.Exists(target))
                     {
                         string saved = Path.Combine(backup, relative);
@@ -531,6 +785,74 @@ namespace RyGT
             RecordInstalled(root, release.Version);
             CleanUp(root);
             progress("Updated to " + Display(release.Version) + ".", 1);
+        }
+
+        enum PackagePart { All, Runtime, Renderer }
+
+        /// FEAT-RT-046: downloads one package (a release's zip, or a nightly's artifact holding the package
+        /// zip and its .sha256), checks it and unpacks it under update\staging\<name>; the files to install
+        /// as (relative path, unpacked file). A runtime part leaves out the renderer's files (a complete
+        /// package has them too), a renderer part takes only those; only a part with the runtime must be
+        /// made for the folder's game.
+        static List<KeyValuePair<string, string>> Unpack(string root, string titleId, string url, string zipName, string expected,
+                                                         string name, PackagePart part, Action<string, double> progress)
+        {
+            string folder = UpdateFolder(root), download = Path.Combine(folder, "download"), staging = Path.Combine(folder, "staging", name);
+            string zip = Path.Combine(download, name + "-" + zipName);
+            if (expected == null)
+            {
+                // A nightly: the artifact holds the package zip and its .sha256.
+                string artifact = Path.Combine(download, name + "-artifact.zip");
+                Download(url, artifact, zipName, progress);
+                progress("Unpacking the download...", -1);
+                string unpacked = Path.Combine(download, name + "-a");
+                ZipFile.ExtractToDirectory(artifact, unpacked);
+                string inner = Directory.GetFiles(unpacked, Product + "-*.zip", SearchOption.AllDirectories).FirstOrDefault(f => File.Exists(f + ".sha256"));
+                if (inner == null) throw new InvalidDataException("The nightly has no package zip and checksum.");
+                expected = File.ReadAllText(inner + ".sha256").Split(' ')[0].Trim().ToLowerInvariant();
+                File.Move(inner, zip);
+            }
+            else
+            {
+                Download(url, zip, zipName, progress);
+            }
+            if (string.IsNullOrEmpty(expected) || !Regex.IsMatch(expected, "^[0-9a-f]{64}$"))
+                throw new InvalidDataException("The package's SHA-256 is not given, so it can't be checked.");
+
+            progress("Checking the download...", -1);
+            string sha = Sha256Of(zip);
+            if (sha != expected)
+                throw new InvalidDataException("The download is damaged (SHA-256 " + sha + ", expected " + expected + ").");
+
+            progress("Unpacking...", -1);
+            ZipFile.ExtractToDirectory(zip, staging);
+            // The package's top folder: the one holding its file list.
+            string listing = new[] { "manifest.json", "SHA256SUMS.txt", RendererSums }
+                .SelectMany(n => Directory.GetFiles(staging, n, SearchOption.AllDirectories)).OrderBy(p => p.Length).FirstOrDefault();
+            if (listing == null) throw new InvalidDataException("The package lists no files.");
+            string packageRoot = Path.GetDirectoryName(listing);
+            var listed = PackageFiles(packageRoot);
+            // FEAT-GTS-291: only a package made for the folder's game, which ships that game's files
+            // (GT Sport's user\custom_configs\CUSA03220.json, GT7's patches\CUSA24769.xml): another
+            // game's runtime over it would break it. The renderer is the same for both games.
+            if (part != PackagePart.Renderer && !PackageIsFor(listed.Select(f => f.Key), titleId))
+                throw new InvalidDataException("This package has no files for " + titleId + ", so it can't update this folder. " +
+                                               "Nothing was changed.");
+            var files = new List<KeyValuePair<string, string>>();
+            foreach (var file in listed)
+            {
+                string relative = file.Key.Replace('/', '\\');
+                if (IsProtected(relative)) continue;
+                if (part == PackagePart.Runtime && IsRendererFile(relative)) continue;
+                if (part == PackagePart.Renderer && !IsRendererFile(relative)) continue;
+                string source = Path.Combine(packageRoot, relative);
+                if (!File.Exists(source) || (file.Value != null && Sha256Of(source) != file.Value))
+                    throw new InvalidDataException("The package's " + relative + " doesn't match its checksum list.");
+                files.Add(new KeyValuePair<string, string>(relative, source));
+            }
+            if (part == PackagePart.Renderer && !files.Any(f => f.Key.Equals(RendererFiles[0], StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidDataException("The renderer package has no " + RendererFiles[0] + ".");
+            return files;
         }
 
         /// Whether a package's file list has a file named after the title ID (CUSA03220.json, CUSA24769.xml).

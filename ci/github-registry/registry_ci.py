@@ -83,18 +83,25 @@ def verify(channel=None):
     commit = os.environ['SOURCE_SHA']
     renderer = os.environ['RENDERER_SHA']
     package_version = version(commit, renderer)
+    # FEAT-RT-046: a split Release nightly: runtime (RyGT's runs) or renderer (shadGT's runs); else complete.
+    part = os.environ.get('PACKAGE_PART') or 'full'
+    if part not in ('full', 'runtime', 'renderer'):
+        raise ValueError('Invalid package part')
     folder = Path('source/dist')
     manifest = json.loads((folder / 'CI-PACKAGES.json').read_text())
     variants = manifest.get('variants', [])
     if (manifest.get('schema') != 2 or manifest.get('commit') != commit or
             [v.get('channel') for v in variants] != list(channels) or
-            manifest.get('renderer_commit') != renderer):
+            manifest.get('part', 'full') != part or
+            manifest.get('renderer_commit') != (None if part == 'runtime' else renderer)):
         raise RuntimeError('Package manifest channels do not match selection')
     packages = []
     # Validate all artifacts before upload.
     for variant in variants:
         channel = variant['channel']
-        archive = folder / f'RyGT-{channel}-{commit[:8]}.zip'
+        variant_part = variant.get('part', 'full')
+        name = {'runtime': f'RyGT-runtime-{commit[:8]}', 'renderer': f'RyGT-renderer-{renderer[:8]}'}.get(variant_part, f'RyGT-{channel}-{commit[:8]}')
+        archive = folder / (name + '.zip')
         checksum = archive.with_suffix('.zip.sha256')
         digest, name = checksum.read_text().strip().split('  ', 1)
         with archive.open('rb') as stream:
@@ -102,12 +109,19 @@ def verify(channel=None):
         if (name != archive.name or actual != digest or variant.get('archive') != name or
                 variant.get('sha256') != digest):
             raise RuntimeError('Final package checksum mismatch')
+        info = 'RENDERER-BUILD_INFO.txt' if variant_part == 'renderer' else 'BUILD_INFO.txt'
         with zipfile.ZipFile(archive) as package:
-            build = json.loads(package.read(archive.stem + '/BUILD_INFO.txt'))
-        source = build.get('renderer_source', '').splitlines()
-        if (len(source) != 2 or source[0].lower() != 'https://github.com/rygt-team/shadgt.git' or
-                source[1] != renderer):
-            raise RuntimeError('Package renderer differs from resolved CI revision')
+            build = json.loads(package.read(archive.stem + '/' + info))
+        if build.get('part', 'full') != variant_part:
+            raise RuntimeError('Package part differs from the selection')
+        if variant_part == 'runtime':
+            if build.get('renderer_source') is not None:
+                raise RuntimeError('The runtime package names a renderer')
+        else:
+            source = (build.get('renderer_source') or '').splitlines()
+            if (len(source) != 2 or source[0].lower() != 'https://github.com/rygt-team/shadgt.git' or
+                    source[1] != renderer):
+                raise RuntimeError('Package renderer differs from resolved CI revision')
         packages.append((channel, archive, checksum, digest))
     for channel, archive, checksum, digest in packages:
         print(f'Verified {channel}: {archive.name} SHA-256 {digest}')

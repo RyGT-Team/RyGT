@@ -329,6 +329,88 @@ namespace RyGT
             Check(Updater.PackageIsFor(gtsPackage, GameInfo.GTSport.TitleId) && !Updater.PackageIsFor(gtsPackage, GameInfo.GT7.TitleId), "GT Sport's package is GT Sport's");
             Check(Updater.PackageIsFor(gt7Package, GameInfo.GT7.TitleId) && !Updater.PackageIsFor(gt7Package, GameInfo.GTSport.TitleId), "GT7's package is GT7's");
             Check(Updater.PackageIsFor(gtsPackage.Concat(gt7Package), GameInfo.GT7.TitleId), "A package for both games updates either");
+            // FIX-RT-044: rygt- release tags, and nightlies told apart by their renderer too.
+            Check(Updater.TagVersion("rygt-2026-11-23") == "2026-11-23" && Updater.TagVersion("gt-sport-2026-11-16") == "2026-11-16", "Release tags read as dates");
+            string rygt = new string('a', 40), shadgt = new string('b', 40), newer = new string('c', 40);
+            string nightly = Path.Combine(folder, "nightly-check");
+            Directory.CreateDirectory(nightly);
+            Put(Path.Combine(nightly, "BUILD_INFO.txt"), "{\"commit\": \"" + rygt + "\", \"renderer_source\": \"https://github.com/RyGT-Team/shadGT.git\n" + shadgt + "\"}");
+            string installed = Updater.InstalledVersion(nightly);
+            Check(installed == "ci-aaaaaaaa+bbbbbbbb", "An installed nightly names its renderer: " + installed);
+            Check(Updater.Display(installed) == "nightly aaaaaaaa, renderer bbbbbbbb" && Updater.Display("ci-aaaaaaaa") == "nightly aaaaaaaa", "Nightlies are shown with their renderer");
+            var same = new ReleaseInfo { Artifact = true, Version = "ci-aaaaaaaa+bbbbbbbb", Commit = rygt, RendererCommit = shadgt };
+            var renderer = new ReleaseInfo { Artifact = true, Version = "ci-aaaaaaaa+cccccccc", Commit = rygt, RendererCommit = newer };
+            var release = new ReleaseInfo { Version = "2026-11-23", Commit = rygt };
+            Check(!Updater.IsNewer(same, installed, nightly), "The same build is not offered again");
+            Check(Updater.IsNewer(renderer, installed, nightly), "A newer renderer on the same RyGT commit is offered");
+            Check(!Updater.IsNewer(release, installed, nightly), "A release of the same RyGT commit is not offered");
+            Check(Updater.IsNewer(renderer, "ci-aaaaaaaa", nightly), "An installed version recorded before FIX-RT-044 still compares by renderer");
+            // FEAT-RT-046: a renderer-only nightly replaces only the renderer's files (not a runtime file its
+            // listing names), and a roll back puts them back.
+            string split = Path.Combine(folder, "sp"), splitPackage = Path.Combine(folder, "spp"), splitArtifact = Path.Combine(folder, "spa");
+            Put(Path.Combine(split, "BUILD_INFO.txt"), "{\"commit\": \"" + rygt + "\", \"launcher_version\": \"0.3.27\"}");
+            Put(Path.Combine(split, @"libs\libSceVideoOut.prx"), "old renderer");
+            Put(Path.Combine(split, @"libs\libc.prx"), "runtime");
+            string inner = Path.Combine(splitPackage, "r");
+            Put(Path.Combine(inner, @"libs\libSceVideoOut.prx"), "new renderer");
+            Put(Path.Combine(inner, @"libs\libc.prx"), "not the renderer's");
+            Func<string, string> hash = path => { using (var sha = System.Security.Cryptography.SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(path))).Replace("-", "").ToLowerInvariant(); };
+            Put(Path.Combine(inner, "RENDERER-SHA256SUMS.txt"), hash(Path.Combine(inner, @"libs\libSceVideoOut.prx")) + "  libs/libSceVideoOut.prx\n" +
+                                                                hash(Path.Combine(inner, @"libs\libc.prx")) + "  libs/libc.prx\n");
+            Directory.CreateDirectory(splitArtifact);
+            string packageZip = Path.Combine(splitArtifact, "RyGT-renderer-cccccccc.zip");
+            System.IO.Compression.ZipFile.CreateFromDirectory(splitPackage, packageZip);
+            Put(packageZip + ".sha256", hash(packageZip) + "  RyGT-renderer-cccccccc.zip\n");
+            string artifactZip = Path.Combine(folder, "ra.zip");
+            System.IO.Compression.ZipFile.CreateFromDirectory(splitArtifact, artifactZip);
+            var splitRelease = new ReleaseInfo { Artifact = true, Version = "ci-aaaaaaaa+cccccccc", Commit = rygt, RendererCommit = newer,
+                                                 ZipName = "RyGT-ci-aaaaaaaa.zip", RendererZipUrl = new Uri(artifactZip).AbsoluteUri };
+            Check(Updater.IsNewer(splitRelease, Updater.InstalledVersion(split), split), "A nightly with another renderer is offered");
+            Updater.Install(split, GameInfo.GTSport.TitleId, splitRelease, (text, fraction) => { });
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libSceVideoOut.prx")) == "new renderer", "The renderer package installs the renderer");
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libc.prx")) == "runtime", "The renderer package leaves the runtime's files");
+            Check(!File.Exists(Path.Combine(split, "RENDERER-SHA256SUMS.txt")) && File.Exists(Path.Combine(split, "BUILD_INFO.txt")), "The renderer package keeps the folder's own listing");
+            Check(Updater.LastUpdate(split) != null, "The renderer update can be rolled back");
+            Updater.RollBack(split);
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libSceVideoOut.prx")) == "old renderer" && File.ReadAllText(Path.Combine(split, @"libs\libc.prx")) == "runtime",
+                  "A roll back puts the renderer back");
+            Check(Updater.Display(Updater.InstalledVersion(split)) == "nightly 0.3.27", "A nightly is shown by its runtime version: " + Updater.Display(Updater.InstalledVersion(split)));
+            // Both parts in one update (runtime from RyGT, renderer from shadGT) and one roll back for both.
+            string runtimePackage = Path.Combine(folder, "rtp"), runtimeArtifact = Path.Combine(folder, "rta"), runtimeInner = Path.Combine(runtimePackage, "r");
+            string newRygt = new string('d', 40);
+            Put(Path.Combine(runtimeInner, "BUILD_INFO.txt"), "{\"commit\": \"" + newRygt + "\", \"launcher_version\": \"0.3.28\"}");
+            Put(Path.Combine(runtimeInner, @"libs\libc.prx"), "new runtime");
+            Put(Path.Combine(runtimeInner, @"user\custom_configs\CUSA03220.json"), "{}");
+            Put(Path.Combine(runtimeInner, @"libs\libSceVideoOut.prx"), "a renderer in the runtime package");
+            Put(Path.Combine(runtimeInner, "SHA256SUMS.txt"), string.Concat(new[] { "BUILD_INFO.txt", "libs/libc.prx", "user/custom_configs/CUSA03220.json", "libs/libSceVideoOut.prx" }
+                .Select(f => hash(Path.Combine(runtimeInner, f.Replace('/', '\\'))) + "  " + f + "\n")));
+            Directory.CreateDirectory(runtimeArtifact);
+            string runtimeZip = Path.Combine(runtimeArtifact, "RyGT-runtime-dddddddd.zip");
+            System.IO.Compression.ZipFile.CreateFromDirectory(runtimePackage, runtimeZip);
+            Put(runtimeZip + ".sha256", hash(runtimeZip) + "  RyGT-runtime-dddddddd.zip\n");
+            string runtimeArtifactZip = Path.Combine(folder, "rt.zip");
+            System.IO.Compression.ZipFile.CreateFromDirectory(runtimeArtifact, runtimeArtifactZip);
+            var both = new ReleaseInfo { Artifact = true, Version = "ci-dddddddd+cccccccc", Commit = newRygt, RendererCommit = newer, ZipName = "RyGT-ci-dddddddd.zip",
+                                         ZipUrl = new Uri(runtimeArtifactZip).AbsoluteUri, RendererZipUrl = new Uri(artifactZip).AbsoluteUri };
+            string infoBefore = File.ReadAllText(Path.Combine(split, "BUILD_INFO.txt"));
+            Updater.Install(split, GameInfo.GTSport.TitleId, both, (text, fraction) => { });
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libc.prx")) == "new runtime" && File.ReadAllText(Path.Combine(split, @"libs\libSceVideoOut.prx")) == "new renderer",
+                  "One update installs the runtime and the renderer (not the runtime package's renderer)");
+            Check(File.ReadAllText(Path.Combine(split, "BUILD_INFO.txt")).Contains(newRygt), "The runtime package's BUILD_INFO.txt is installed");
+            Updater.RollBack(split);
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libc.prx")) == "runtime" && File.ReadAllText(Path.Combine(split, @"libs\libSceVideoOut.prx")) == "old renderer" &&
+                  File.ReadAllText(Path.Combine(split, "BUILD_INFO.txt")) == infoBefore && !File.Exists(Path.Combine(split, @"user\custom_configs\CUSA03220.json")),
+                  "One roll back puts back the runtime, the renderer and BUILD_INFO.txt, and removes what the update added");
+            var rendererOnly = new ReleaseInfo { Artifact = true, Version = "ci-+cccccccc", RendererCommit = newer, RendererZipUrl = new Uri(artifactZip).AbsoluteUri };
+            Check(Updater.IsNewer(rendererOnly, Updater.InstalledVersion(split), split) && Updater.Display(rendererOnly.Version) == "nightly renderer cccccccc",
+                  "A nightly with only a renderer part compares by the renderer");
+            // FEAT-RT-045: a nightly's changelog is its commit description as bullets.
+            var run = new Dictionary<string, object> { { "head_commit", new Dictionary<string, object> { { "message",
+                "Merge pull request #151 from RyGT-Team/feat/x\n\nFEAT-SGT-189: GT7 DLSS below\nthe output\n\n- one\n- two\n  wrapped\n\nCo-Authored-By: A <a@b>" },
+                { "author", new Dictionary<string, object> { { "name", "Will" }, { "email", "w@example.com" } } } } } };
+            string nightlyNotes = Updater.CommitNotes(run, true, "fallback");
+            Check(nightlyNotes == "## Renderer changes:\n- FEAT-SGT-189: GT7 DLSS below *(Will)*", "Nightly notes are the commit title and author: " + nightlyNotes);
+            Check(Updater.CommitNotes(new Dictionary<string, object>(), false, "fallback") == "fallback", "Nightly notes fall back without a message");
         }
 
         static void Put(string path, string text)
