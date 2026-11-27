@@ -254,7 +254,11 @@ namespace RyGT
                     plan.Refusal = SportFillRefusal(setting);
                 }
             } else if (taller && !SavedStretch(setting, mode) &&
-                       (!gts || (IsTallOutput(output) && rendererHas("RYGT_TALL_SCENE")))) {
+                       // GT7 too asks its renderer: without the menus rendered at 16:9 inside the
+                       // taller scene (FEAT-SGT-243, RYGT_GT7_TALL_MENUS) its menus come out
+                       // stretched over the whole height.
+                       (gts ? IsTallOutput(output) && rendererHas("RYGT_TALL_SCENE")
+                            : rendererHas("RYGT_GT7_TALL_MENUS"))) {
                 int width = own.HasValue ? own.Value.Width : 1920;
                 Size scene = TallScene(ratio, width);
                 if (SupportsTallScene(scene)) {

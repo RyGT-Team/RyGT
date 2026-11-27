@@ -72,7 +72,8 @@ Check(RenderResolution.SportFillRefusal(saved).Contains("Native renderer"),"GT S
 profile.Clear();
 bool tallRenderer=false;
 bool tallScene=false;
-Func<bool,string,string,string,Size,RenderResolution.ScenePlan> plan=(g,preset,mode,pro,output)=>RenderResolution.Plan(g,preset,mode,pro,output,saved,name=>name=="RYGT_TALL_SCREEN"?tallRenderer:name=="RYGT_TALL_SCENE"&&tallScene);
+bool gt7TallMenus=true;
+Func<bool,string,string,string,Size,RenderResolution.ScenePlan> plan=(g,preset,mode,pro,output)=>RenderResolution.Plan(g,preset,mode,pro,output,saved,name=>name=="RYGT_TALL_SCREEN"?tallRenderer:name=="RYGT_GT7_TALL_MENUS"?gt7TallMenus:name=="RYGT_TALL_SCENE"&&tallScene);
 Func<RenderResolution.ScenePlan,string> told=p=>String.Join(" ",new[]{p.Scene.HasValue?p.Scene.Value.Width+"x"+p.Scene.Value.Height:"game",p.Aspect,p.Kind,p.Wide?"wide":"",p.Tall?"tall":"",p.FromShape?"shape":"",p.SportPicture?"picture":"",p.Refusal!=null?"refused":""}.Where(s=>s!=""));
 Size wide1080 = new Size(2560,1080), wide1600 = new Size(3840,1600), superwide = new Size(5120,1440), tall = new Size(1920,1200);
 Check(RenderResolution.SportFillRefusal(saved)==null,"GT Sport fills with the native renderer by default");

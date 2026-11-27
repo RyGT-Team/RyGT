@@ -3638,8 +3638,12 @@ namespace RyGT
             // same decision the page previews (FIX-RT-048); what it refuses is announced.
             var plan = RenderResolution.Plan(gts, preset, mode, pro, output, ShownUpscaling(root, game.Kind, setting),
                                              name => RendererReads(root, name));
-            if (!gts) env["RYGT_ASPECT"] = plan.Aspect;
-            env["SHADGT_ASPECT"] = plan.Aspect;
+            // FEAT-RT-042: GT7 is handed "Match the window or display" as the output's own
+            // width:height (RenderResolution.ScreenShape), so the runtime and the renderer get one
+            // number. GT Sport's renderer reads "auto" itself.
+            string aspect = !gts && plan.Aspect == "auto" ? RenderResolution.ScreenShape("auto", output) : plan.Aspect;
+            if (!gts) env["RYGT_ASPECT"] = aspect;
+            env["SHADGT_ASPECT"] = aspect;
             if (plan.Refusal != null) throw new InvalidOperationException(plan.Refusal);
             if (plan.SportPicture) {
                 // WIDE-001 on the game's own 16:9 scene: the race picture composed over the whole

@@ -8,6 +8,11 @@ CI fails when the two disagree.
 
 ## 0.3.28 - 2026-11-28
 
+* FIX-RT-053: GT7's taller scene asks the renderer first. A taller Screen shape on Native gave GT7 a
+  1920 x 1200 scene on any renderer; one without the menus rendered at 16:9 inside that scene (shadGT
+  FEAT-SGT-243) stretches the menus over the whole height. Without such a renderer GT7 now keeps its
+  16:9 scene and the page says so, as for GT Sport. And a shape that follows the screen reaches GT7 as
+  the output's own width:height (FEAT-RT-042's rule), not as "auto".
 * FIX-RT-052: the Render resolution list says the size really rendered. With a Native screen shape the line
   still read "Game default" (the game's 1920 x 1080) while the scene was 1920 x 1200 on a 16:10 screen or
   2576 x 1080 on a 3440 x 1440 one. Each line now shows the scene for the chosen shape ("1920 x 1200",

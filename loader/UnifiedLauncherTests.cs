@@ -208,8 +208,11 @@ namespace RyGT
                 Check(keptPicture.SelectedIndex == 1, "An older launcher's shape stays stretched, " + game.TitleId);
             }
             var legacy = configured(null);
-            Check(legacy.EnvironmentVariables["SHADGT_ASPECT"] == "auto" &&
-                  legacy.EnvironmentVariables["RYGT_ASPECT"] == (sport ? null : "auto") &&
+            // GT7 is handed "auto" as the output's width:height (FEAT-RT-042); GT Sport's renderer reads "auto".
+            string legacyShape = legacy.EnvironmentVariables["SHADGT_ASPECT"];
+            Check((sport ? legacyShape == "auto" && legacy.EnvironmentVariables["RYGT_ASPECT"] == null
+                         : legacyShape != null && legacyShape != "auto" && legacyShape != "16:9" && legacyShape.Contains(":") &&
+                           legacy.EnvironmentVariables["RYGT_ASPECT"] == legacyShape) &&
                   (!sport || (legacy.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" && legacy.EnvironmentVariables["SHADGT_UI_HIRES"] == "1" &&
                               File.ReadAllText(game.ConfigPath(root)).Contains("\"wide_scene_alloc\":false"))),
                   "An older launcher's shape reaches " + game.TitleId + (sport ? " as the wide picture on its 16:9 scene" : ""));
@@ -274,8 +277,10 @@ namespace RyGT
                   shapePreview.Text.Contains("stretched over the window") &&
                   shapePreview.Text.Contains("race HUD unstretched") == sport, "The preview names the old method");
             var filled = configured(null);
-            Check(filled.EnvironmentVariables["SHADGT_ASPECT"] == "auto" &&
-                  filled.EnvironmentVariables["RYGT_ASPECT"] == (sport ? null : "auto") &&
+            // GT7 is handed the output's own width:height where GT Sport's renderer reads "auto" (FEAT-RT-042).
+            Func<string, bool> followsOutput = v => sport ? v == "auto" : v != null && v.Length >= 8 && v.Contains(":");
+            Check(followsOutput(filled.EnvironmentVariables["SHADGT_ASPECT"]) &&
+                  filled.EnvironmentVariables["RYGT_ASPECT"] == (sport ? null : filled.EnvironmentVariables["SHADGT_ASPECT"]) &&
                   (!sport || (filled.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" && filled.EnvironmentVariables["SHADGT_UI_HIRES"] == "1")),
                   "The screen's shape reaches " + game.TitleId);
             var outside = configured("21:9");
@@ -284,7 +289,7 @@ namespace RyGT
             // "21:9" is 2.333; a 3440 x 1440 screen is 2.389 and gets its own shape, a 32:9 one the named shape.
             shape.SelectedItem = "21:9";
             Check(File.ReadAllText(game.ConfigPath(root)).Contains("\"screen_aspect\":\"21:9\"") &&
-                  configured(null).EnvironmentVariables["SHADGT_ASPECT"] == "auto", "A named 21:9 follows a real 21:9 screen");
+                  followsOutput(configured(null).EnvironmentVariables["SHADGT_ASPECT"]), "A named 21:9 follows a real 21:9 screen");
             output.SelectedItem = "5120 x 1440";
             Check(configured(null).EnvironmentVariables["SHADGT_ASPECT"] == "21:9", "A named 21:9 stays 21:9 on a 32:9 screen");
             output.SelectedItem = "1280 x 720";
@@ -338,17 +343,29 @@ namespace RyGT
                     System.Text.RegularExpressions.Regex.Replace(wideWindow7, "\"window_width\":\\d+", "\"window_width\":1920"),
                     "\"window_height\":\\d+", "\"window_height\":1200").Replace("\"screen_stretch\":true", "\"screen_stretch\":false");
                 File.WriteAllText(game.ConfigPath(root), tall7);
-                using (var tallForm = new LoaderForm(game.Kind, root)) {
-                    var tallScene = (System.Windows.Forms.ComboBox)tallForm.Controls.Find("SceneResolution", true).Single();
-                    var tallPicture = (System.Windows.Forms.ComboBox)tallForm.Controls.Find("WidePicture", true).Single();
-                    var tallPreview = tallForm.Controls.Find("ScenePreview", true).Single();
-                    Check((string)tallScene.SelectedItem == "1920 x 1200" && tallPicture.SelectedIndex == 0 &&
-                          tallPreview.Text.Contains("Rendered at 1920 × 1200  →  Window 1920 × 1200") && !tallPreview.Text.Contains("16:9 picture"),
-                          "Native on a 16:10 window is a 1920 x 1200 scene in GT7");
-                    tallPicture.SelectedIndex = 1;
-                    Check((string)tallScene.SelectedItem == "Game default" && tallPreview.Text.Contains("from the 16:9 picture"),
-                          "Stretched on a 16:10 window keeps GT7's 16:9 scene");
-                }
+                // Only with a renderer that renders GT7's menus at 16:9 inside the taller scene
+                // (FEAT-SGT-243, RYGT_GT7_TALL_MENUS): without it the launch keeps the 16:9 scene.
+                string fakeRenderer7 = Path.Combine(root, SwitchWalker.RendererFile);
+                Check(!File.Exists(fakeRenderer7), "The GT7 test folder has no renderer of its own");
+                var olderRenderer = configured(null);
+                Check(olderRenderer.EnvironmentVariables["SHADGT_ASPECT"] == "1920:1200" && olderRenderer.EnvironmentVariables["RYGT_ASPECT"] == "1920:1200" &&
+                      olderRenderer.EnvironmentVariables["SHADGT_PATCH"] == null,
+                      "Native on a 16:10 window keeps GT7's 16:9 scene on a renderer without the taller menus");
+                Directory.CreateDirectory(Path.GetDirectoryName(fakeRenderer7));
+                File.WriteAllBytes(fakeRenderer7, System.Text.Encoding.ASCII.GetBytes("RYGT_GT7_TALL_MENUS\0"));
+                try {
+                    using (var tallForm = new LoaderForm(game.Kind, root)) {
+                        var tallScene = (System.Windows.Forms.ComboBox)tallForm.Controls.Find("SceneResolution", true).Single();
+                        var tallPicture = (System.Windows.Forms.ComboBox)tallForm.Controls.Find("WidePicture", true).Single();
+                        var tallPreview = tallForm.Controls.Find("ScenePreview", true).Single();
+                        Check((string)tallScene.SelectedItem == "1920 x 1200" && tallPicture.SelectedIndex == 0 &&
+                              tallPreview.Text.Contains("Rendered at 1920 × 1200  →  Window 1920 × 1200") && !tallPreview.Text.Contains("16:9 picture"),
+                              "Native on a 16:10 window is a 1920 x 1200 scene in GT7");
+                        tallPicture.SelectedIndex = 1;
+                        Check((string)tallScene.SelectedItem == "Game default" && tallPreview.Text.Contains("from the 16:9 picture"),
+                              "Stretched on a 16:10 window keeps GT7's 16:9 scene");
+                    }
+                } finally { File.Delete(fakeRenderer7); }
                 File.WriteAllText(game.ConfigPath(root), wideWindow7);
             }
             shape.SelectedIndex = 0;
