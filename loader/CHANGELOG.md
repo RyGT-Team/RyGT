@@ -6,6 +6,31 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.28 - 2026-11-28
+
+* FIX-RT-049: the Screen shape setting (FEAT-RT-042) reads older profiles, follows the real screen, and exists
+  for GT Sport.
+  - Since 0.3.20 the launcher started every game at 16:9 whatever the profile said, so GT7's Ultrawide setting
+    and GT Sport's "Fill the screen" were dropped without a word. A shape saved by those launchers
+    (`GPU.aspect_ratio`) is read again while Render resolution is Game default, and shown as it is.
+  - A named shape within 3.5% of the screen's real one follows the screen: "21:9" is 2.333, and the screens sold
+    as 21:9 are 2.370 (2560 x 1080), 2.389 (3440 x 1440) and 2.400 (3840 x 1600).
+  - GT Sport gets the row, with the wider shapes only (it has no taller race view). Its old "Fill the screen"
+    stretched the menus and the race HUD with the picture; the launcher now uses the renderer's wide picture on
+    the game's own 16:9 scene (WIDE-001 with `wide_scene_alloc=false`): the race fills the screen, the menus
+    stay 16:9 in the middle and the race HUD is not stretched (its sides sit at the screen's edges). It needs
+    the Native renderer, Game default render resolution and a screen wider than 16:9, and is not applied on a
+    PS4 Pro 4K TV; elsewhere GT Sport stays 16:9. Played at 3440 x 1440 on an RTX 4070 only, without upscaling.
+  - The Display preview says "Old method" when a wider shape stretches the game's 16:9 picture over the screen;
+    an ultrawide Render resolution is sharper but needs upscaling off (and base PS4 mode in GT7). Known limit:
+    in GT7 with DLSS, some menus lose their interface in this mode, a renderer defect (shadGT #152).
+* FIX-RT-048: a game that cannot be started says why. A render resolution Play refuses (upscaling on, the old
+  renderer, a wide size that does not fit the window, GT7 native ultrawide in Pro mode) only wrote a line to
+  setup.log while the window kept reading "is starting". Play now shows the reason in a message and in the
+  status line, and the Display page's preview shows it before Play, with upscaling and the renderer as they
+  are saved. Auto in a 1920 x 1080 window is the game's own scene and is no longer refused with upscaling on,
+  and a DLSS setting left on without the DLSS files (shown as off) no longer counts as upscaling.
+
 ## 0.3.26 - 2026-11-27
 
 * FEAT-RT-042: GT7's Display page has a Screen shape setting (16:9, match the window or display, 16:10, 4:3,

@@ -67,6 +67,38 @@ foreach (string upscaler in new[] {"dlss_enabled","fsr_enabled"}) {
 }
 profile["native_renderer"]=false;
 Check(RenderResolution.Refusal(true,saved,uhd,fhd,"off").Contains("Native renderer"),"old renderer with a fixed scene");
+Check(RenderResolution.SportFillRefusal(saved).Contains("Native renderer"),"GT Sport cannot keep its menus 16:9 on the old renderer");
+// FIX-RT-049: the saved shape, the real screen's shape, and what each game is handed.
+profile.Clear();
+bool fill;
+Size wide1080 = new Size(2560,1080), wide1600 = new Size(3840,1600), superwide = new Size(5120,1440), tall = new Size(1920,1200);
+Check(RenderResolution.SportFillRefusal(saved)==null,"GT Sport fills with the native renderer by default");
+Check(RenderResolution.SavedShape(saved,"game")=="16:9" && RenderResolution.LaunchShape(false,null,"game","off",wide1440,saved,out fill)=="16:9","no saved shape is 16:9");
+profile["aspect_ratio"]="auto";
+Check(RenderResolution.SavedShape(saved,"game")=="auto","a shape saved before 0.3.20 counts with the game's own render resolution");
+Check(RenderResolution.SavedShape(saved,"3440x1440")=="16:9" && RenderResolution.SavedShape(saved,RenderResolution.Auto)=="16:9","the older key is the render resolution's own beside another mode");
+profile["screen_aspect"]="16:9";
+Check(RenderResolution.SavedShape(saved,"game")=="16:9","the new key wins over the older one");
+profile["screen_aspect"]="21:9";
+Check(RenderResolution.SavedShape(saved,"2560x1440")=="21:9","the new key holds with any render resolution");
+foreach (Size real in new[] {wide1080,wide1440,wide1600}) Check(RenderResolution.ExactShape("21:9",real)=="auto","21:9 follows "+real);
+Check(RenderResolution.ExactShape("21:9",superwide)=="21:9" && RenderResolution.ExactShape("21:9",fhd)=="21:9","21:9 stays a choice on other screens");
+Check(RenderResolution.ExactShape("32:9",superwide)=="auto" && RenderResolution.ExactShape("16:10",tall)=="auto" && RenderResolution.ExactShape("16:10",fhd)=="16:10","32:9 and 16:10");
+Check(RenderResolution.ExactShape("16:9",fhd)=="16:9" && RenderResolution.ExactShape("auto",wide1440)=="auto" && RenderResolution.ExactShape("bad",fhd)=="bad","16:9, auto and unknown values are left alone");
+Check(RenderResolution.LaunchShape(false,null,"game","off",wide1440,saved,out fill)=="auto" && !fill,"GT7 takes the screen's shape");
+Check(RenderResolution.LaunchShape(false,null,"game","4k",superwide,saved,out fill)=="21:9" && !fill,"GT7 keeps its shape on a Pro 4K TV");
+Check(RenderResolution.LaunchShape(false,"32:9","game","off",wide1440,saved,out fill)=="32:9" && !fill,"a shape set outside the page wins in GT7");
+Check(RenderResolution.LaunchShape(true,null,"game","off",wide1440,saved,out fill)=="auto" && fill,"GT Sport fills a wider screen from its own scene");
+Check(RenderResolution.LaunchShape(true,null,"game","1080p",wide1440,saved,out fill)=="auto" && fill,"GT Sport fills on a Pro 1080p TV");
+Check(RenderResolution.LaunchShape(true,null,"game","4k",wide1440,saved,out fill)=="16:9" && !fill,"GT Sport stays 16:9 on a Pro 4K TV");
+Check(RenderResolution.LaunchShape(true,null,"game","off",fhd,saved,out fill)=="16:9" && !fill,"GT Sport stays 16:9 in a 16:9 window");
+Check(RenderResolution.LaunchShape(true,null,"game","off",tall,saved,out fill)=="16:9" && !fill,"GT Sport stays 16:9 on a taller screen");
+Check(RenderResolution.LaunchShape(true,null,"2560x1440","off",wide1440,saved,out fill)=="16:9" && !fill,"GT Sport stays 16:9 beside another render resolution");
+Check(RenderResolution.LaunchShape(true,"21:9","game","off",wide1440,saved,out fill)=="21:9" && !fill,"a shape set outside the page keeps GT Sport's plain behaviour");
+profile["screen_aspect"]="16:10";
+Check(RenderResolution.LaunchShape(false,null,"game","off",fhd,saved,out fill)=="16:10" && !fill,"GT7 takes a taller shape");
+Check(RenderResolution.LaunchShape(true,null,"game","off",wide1440,saved,out fill)=="16:9" && !fill,"GT Sport has no taller view");
+profile.Clear();
 profile.Remove("native_renderer"); profile["experimental_render_scale"]=true;
 Check(RenderResolution.Refusal(true,saved,uhd,fhd,"off").Contains("Native renderer"),"experimental scale with a fixed scene");
 Check(RenderResolution.IsGameDefault(fhd,"off") && !RenderResolution.IsGameDefault(fhd,"1080p") && !RenderResolution.IsGameDefault(uhd,"off") && RenderResolution.IsGameDefault(null,"1080p"),"game default sizes");

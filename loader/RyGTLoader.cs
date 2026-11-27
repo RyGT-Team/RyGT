@@ -3612,35 +3612,52 @@ namespace RyGT
             ConfigurePro(start, game.Kind, setting);
             int count = CustomEnvironment.Apply(start, overrides);
             var env = start.EnvironmentVariables;
+            // An aspect set outside the Display page (the Advanced page, a script's environment).
+            string preset = env["SHADGT_ASPECT"];
             if (game.Kind == GameKind.GT7) {
-                string camera = env["RYGT_ASPECT"], presenter = env["SHADGT_ASPECT"];
-                if (camera != null && presenter != null && camera != presenter)
+                string camera = env["RYGT_ASPECT"];
+                if (camera != null && preset != null && camera != preset)
                     throw new InvalidOperationException("Use the same aspect for RYGT_ASPECT and SHADGT_ASPECT in Advanced.");
-                // FEAT-RT-042: the Display page's screen shape, unless Advanced sets one.
-                string saved = setting("screen_aspect") as string;
-                string shape = RenderResolution.ScreenShape(saved, saved == "auto" ? OutputSize(setting) : Size.Empty);
-                env["RYGT_ASPECT"] = env["SHADGT_ASPECT"] = camera ?? presenter ?? shape;
-            } else if (env["SHADGT_ASPECT"] == null) {
-                env["SHADGT_ASPECT"] = "16:9";
+                preset = camera ?? preset;
             }
-            ApplyNativeResolution(start, root, game, setting);
+            ApplyNativeResolution(start, root, game, setting, preset);
             return count;
         }
 
-        static void ApplyNativeResolution(ProcessStartInfo start, string root, GameInfo game, Func<string, object> setting)
+        static void ApplyNativeResolution(ProcessStartInfo start, string root, GameInfo game, Func<string, object> setting, string preset)
         {
             var env = start.EnvironmentVariables;
             bool gts = game.Kind == GameKind.GTSport;
+            Size output = OutputSize(setting);
+            string mode = RenderResolution.SavedMode(gts, setting, output);
+            string forced = env["RYGT_NATIVE_4K"];
+            if (forced != null) mode = forced == "1" ? "3840x2160" : "game";
             string pro = EffectiveProMode(start, game.Kind, Equals(setting("ps4_pro"), true));
+            // FEAT-RT-042: the Display page's screen shape, unless one is set outside it. FIX-RT-049:
+            // a shape saved before 0.3.20 is read too, a named shape follows the real screen, and GT
+            // Sport fills a wider screen. A native wide scene sets its own shape below.
+            bool sportFill;
+            string aspect = RenderResolution.LaunchShape(gts, preset, mode, pro, output, setting, out sportFill);
+            if (!gts) env["RYGT_ASPECT"] = aspect;
+            env["SHADGT_ASPECT"] = aspect;
+            if (sportFill) {
+                // WIDE-001 on the game's own 16:9 scene allocation: the race picture composed over the
+                // whole screen, the menus 16:9 in the middle, the race HUD unstretched with its sides
+                // at the screen's edges (WIDE-005).
+                string refused = RenderResolution.SportFillRefusal(setting);
+                if (refused != null) throw new InvalidOperationException(refused);
+                // The renderer reads the allocation flag from the profile only.
+                if (!Equals(setting("wide_scene_alloc"), false))
+                    UpdateGpuProfile(root, game, gpu => gpu["wide_scene_alloc"] = false);
+                if (env["SHADGT_WIDE_SCENE"] == null) env["SHADGT_WIDE_SCENE"] = "1";
+                if (env["SHADGT_UI_HIRES"] == null) env["SHADGT_UI_HIRES"] = "1";
+                AppendSetupLog(root, game.TitleId, "GT Sport fills the screen from its 16:9 scene; menus 16:9, race HUD unstretched.");
+            }
             if (pro == "4k") {
                 if (gts) env["SHADGT_WIDE_SCENE"] = "0";
                 AppendSetupLog(root, game.TitleId, "PS4 Pro 4K TV: the game controls scene resolution.");
                 return;
             }
-            Size output = OutputSize(setting);
-            string mode = RenderResolution.SavedMode(gts, setting, output);
-            string forced = env["RYGT_NATIVE_4K"];
-            if (forced != null) mode = forced == "1" ? "3840x2160" : "game";
             Size? size = RenderResolution.NativeSize(mode, output);
             bool wide = size.HasValue && RenderResolution.SupportsWideScene(size.Value);
             if (gts && !wide && env["SHADGT_WIDE_SCENE"] == null)
@@ -3680,6 +3697,24 @@ namespace RyGT
 
         static void SaveRenderMode(string root, GameInfo game, string mode, Size? size)
         {
+            UpdateGpuProfile(root, game, gpu => {
+                bool wide = size.HasValue && RenderResolution.SupportsWideScene(size.Value);
+                gpu["native_resolution"] = mode;
+                gpu["aspect_ratio"] = wide ? "auto" : "16:9";
+                gpu.Remove("native_resolution_16_9");
+                if (game.Kind == GameKind.GTSport) {
+                    gpu["wide_scene"] = wide;
+                    if (wide) {
+                        gpu["native_renderer"] = gpu["ui_hires"] = gpu["wide_scene_alloc"] = true;
+                        gpu["wide_scene_height"] = size.Value.Height;
+                    }
+                }
+            });
+        }
+
+        // The game profile's GPU section, changed and written back whole (other sections kept).
+        static void UpdateGpuProfile(string root, GameInfo game, Action<Dictionary<string, object>> change)
+        {
             string path = game.ConfigPath(root);
             var json = new System.Web.Script.Serialization.JavaScriptSerializer();
             var config = File.Exists(path) ? (Dictionary<string, object>)json.DeserializeObject(File.ReadAllText(path))
@@ -3687,17 +3722,7 @@ namespace RyGT
             object section;
             var gpu = config.TryGetValue("GPU", out section) ? section as Dictionary<string, object> : null;
             if (gpu == null) config["GPU"] = gpu = new Dictionary<string, object>();
-            bool wide = size.HasValue && RenderResolution.SupportsWideScene(size.Value);
-            gpu["native_resolution"] = mode;
-            gpu["aspect_ratio"] = wide ? "auto" : "16:9";
-            gpu.Remove("native_resolution_16_9");
-            if (game.Kind == GameKind.GTSport) {
-                gpu["wide_scene"] = wide;
-                if (wide) {
-                    gpu["native_renderer"] = gpu["ui_hires"] = gpu["wide_scene_alloc"] = true;
-                    gpu["wide_scene_height"] = size.Value.Height;
-                }
-            }
+            change(gpu);
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try {
@@ -3876,20 +3901,24 @@ namespace RyGT
             var effective = Hint("");
             effective.Name = "ScenePreview";
             panel.Controls.Add(effective);
-            if (!gts) {
-                // FEAT-RT-042: the screen's shape (GPU.screen_aspect). GT7 widens its race view for a
-                // wider screen and makes it taller for a taller one (FEAT-GT7-202); menus stay 16:9.
-                var shapes = new[] { "16:9", "auto", "16:10", "4:3", "21:9", "32:9" };
-                var shape = new DarkComboBox { Name = "ScreenShape", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
-                shape.Items.AddRange(new object[] { "16:9 (game default)", "Match the window or display", "16:10", "4:3", "21:9", "32:9" });
-                shape.SelectedIndex = Math.Max(0, Array.IndexOf(shapes, ReadStringSetting("GPU", "screen_aspect", "16:9")));
-                panel.Controls.Add(new SettingRow("Screen shape", shape));
-                panel.Controls.Add(Hint("The race view fills a screen of this shape: wider shows more to the sides, taller more above and below. Menus stay 16:9. A native ultrawide render resolution sets it by itself."));
-                shape.SelectedIndexChanged += delegate {
-                    try { WriteSetting("GPU", "screen_aspect", shapes[shape.SelectedIndex]); }
-                    catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
-                };
-            }
+            // FEAT-RT-042: the screen's shape (GPU.screen_aspect). GT7 widens its race view for a
+            // wider screen and makes it taller for a taller one (FEAT-GT7-202); menus stay 16:9.
+            // FIX-RT-049: GT Sport has the row too, for wider screens only (it has no taller race
+            // view, and its own stretch would take the menus and the HUD: see the launch), and a
+            // shape saved by a launcher before 0.3.20 is shown and kept.
+            var shapes = (gts ? new[] { "16:9", "auto", "21:9", "32:9" }
+                              : new[] { "16:9", "auto", "16:10", "4:3", "21:9", "32:9" }).ToList();
+            var shape = new DarkComboBox { Name = "ScreenShape", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
+            shape.Items.Add("16:9 (game default)");
+            shape.Items.Add("Match the window or display");
+            foreach (string named in shapes.Skip(2)) shape.Items.Add(named);
+            string savedShape = RenderResolution.SavedShape(k => gpu.ContainsKey(k) ? gpu[k] : null, savedMode);
+            if (!shapes.Contains(savedShape)) { shapes.Add(savedShape); shape.Items.Add("Custom (" + savedShape + ")"); }
+            shape.SelectedIndex = shapes.IndexOf(savedShape);
+            panel.Controls.Add(new SettingRow("Screen shape", shape));
+            panel.Controls.Add(Hint(gts
+                ? "The race fills a screen wider than 16:9 from the game's own picture; menus stay 16:9 and the race HUD is not stretched. With Game default render resolution and the Native renderer. A native ultrawide render resolution sets it by itself."
+                : "The race view fills a screen of this shape: wider shows more to the sides, taller more above and below. Menus stay 16:9. A native ultrawide render resolution sets it by itself."));
             Action showScene = delegate {
                 if (resolution.SelectedIndex < 0 || native.SelectedIndex < 0) return;
                 var output = selectedOutput();
@@ -3910,11 +3939,42 @@ namespace RyGT
                 string rendered = scene.HasValue ? "Rendered at " + scene.Value.Width + " × " + scene.Value.Height :
                                                    "Game default render resolution";
                 effective.Text = warning != null ? warning + " " + displayed : rendered + "  →  " + displayed;
-                if (warning == null && RenderResolution.IsWideOutput(output) && (!scene.HasValue || !RenderResolution.IsWideOutput(scene.Value)))
+                // FIX-RT-049: a wider shape over a 16:9 scene is the old method: the game's picture
+                // stretched over the screen. GT Sport has it with its own render resolution only, on a
+                // wider screen, and not on a Pro 4K TV (the launch's rule, LaunchShape).
+                bool sceneWide = scene.HasValue && RenderResolution.SupportsWideScene(scene.Value);
+                if (gts) shape.Enabled = nativeModes[native.SelectedIndex] == "game" && !checker;
+                bool stretched = !sceneWide && shape.Enabled &&
+                                 RenderResolution.ShapeRatio(shapes[shape.SelectedIndex], output) > 16.0 / 9 + 0.01 &&
+                                 (!gts || RenderResolution.IsWideOutput(output));
+                if (warning == null && stretched && gts) {
+                    var saved = ReadGpuSettings(root, info);
+                    warning = RenderResolution.SportFillRefusal(k => saved.ContainsKey(k) ? saved[k] : null);
+                    if (warning != null) {
+                        effective.ForeColor = Dark.AccentText;
+                        effective.Text = warning + " " + displayed;
+                    }
+                }
+                if (warning == null && stretched)
+                    effective.Text += " Old method: the game's picture is stretched over the " +
+                                      (screen.SelectedIndex == 0 ? "window" : "display") +
+                                      (gts ? ", menus kept 16:9 and the race HUD unstretched" : "") +
+                                      "; an ultrawide render resolution is sharper.";
+                else if (warning == null && RenderResolution.IsWideOutput(output) && (!scene.HasValue || !RenderResolution.IsWideOutput(scene.Value)))
                     effective.Text += " The 16:9 image is centered.";
             };
             refreshSceneChoice = showScene;
             bool loading = true;
+            shape.SelectedIndexChanged += delegate {
+                if (loading || shape.SelectedIndex < 0) return;
+                try {
+                    WriteSetting("GPU", "screen_aspect", shapes[shape.SelectedIndex]);
+                    // GT Sport fills the screen from its own 16:9 scene allocation (see the launch).
+                    if (gts && shapes[shape.SelectedIndex] != "16:9") WriteSetting("GPU", "wide_scene_alloc", false);
+                }
+                catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+                showScene();
+            };
             Action saveScene = delegate {
                 string mode = nativeModes[native.SelectedIndex];
                 var chosen = RenderResolution.NativeSize(mode, selectedOutput());

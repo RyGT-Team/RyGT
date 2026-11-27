@@ -143,6 +143,57 @@ namespace RyGT
                    scene.Width + " × " + scene.Height + " to keep the picture in proportion.";
         }
 
+        // FIX-RT-049: the saved screen shape: GPU.screen_aspect (FEAT-RT-042), or what a launcher
+        // before 0.3.20 saved in GPU.aspect_ratio (GT7's Ultrawide row, GT Sport's "Fill the screen").
+        // The older key counts only with the game's own render resolution: since 0.3.20 the render
+        // resolution writes it too ("auto" beside a native wide scene). "16:9" when none.
+        public static string SavedShape(Func<string, object> setting, string mode)
+        {
+            string shape = setting("screen_aspect") as string;
+            if (shape == null && mode == "game") shape = setting("aspect_ratio") as string;
+            return MatchOutputShape(shape) ? shape : "16:9";
+        }
+
+        // The shape's width over its height; "auto" is the window's or the display's.
+        public static double ShapeRatio(string shape, Size output)
+        {
+            return shape == "auto" ? (output.Height > 0 ? (double)output.Width / output.Height : 0) : ConfiguredAspect(shape);
+        }
+
+        // FIX-RT-049: a named shape within 3.5% of the screen's real one follows the screen. "21:9"
+        // is 2.333, and the screens sold under that name are 2.370 (2560 x 1080), 2.389 (3440 x 1440)
+        // and 2.400 (3840 x 1600): taken literally the picture is a little too narrow on all three.
+        public static string ExactShape(string shape, Size output)
+        {
+            double wanted = ConfiguredAspect(shape);
+            if (shape == "16:9" || wanted <= 0 || output.Height <= 0) return shape;
+            double real = (double)output.Width / output.Height;
+            return Math.Abs(wanted - real) / real < 0.035 ? "auto" : shape;
+        }
+
+        // FEAT-RT-042, FIX-RT-049: the aspect handed to the game. preset: one set outside the Display
+        // page (the Advanced page, a script), which wins. GT7 widens or heightens its race view itself
+        // and keeps its menus 16:9. GT Sport's plain stretch (GTS-009) takes the menus and the race
+        // HUD with the picture, so GT Sport only fills a screen wider than 16:9, from its own scene,
+        // through the renderer's wide picture (sportFill; see the launch), and not on a Pro 4K TV,
+        // where the game sets the scene. Anywhere else GT Sport stays 16:9.
+        public static string LaunchShape(bool gts, string preset, string mode, string pro, Size output,
+                                         Func<string, object> setting, out bool sportFill)
+        {
+            string shape = ExactShape(SavedShape(setting, mode), output);
+            sportFill = gts && preset == null && mode == "game" && pro != "4k" && IsWideOutput(output) &&
+                        ShapeRatio(shape, output) > 16.0 / 9 + 0.01;
+            return preset ?? (gts && !sportFill ? "16:9" : shape);
+        }
+
+        // FIX-RT-049: GT Sport's wide picture keeps its menus 16:9 and its race HUD unstretched
+        // through the native renderer (WIDE-001); the old renderer can only stretch everything.
+        public static string SportFillRefusal(Func<string, object> setting)
+        {
+            return Equals(setting("native_renderer"), false)
+                ? "Choose the Native renderer to fill a wider screen in GT Sport, or set Screen shape to 16:9." : null;
+        }
+
         // FIX-RT-048: the game's own 1920 x 1080 scene outside Pro mode needs no patch: it is the
         // game default (Auto in a 1920 x 1080 window), and nothing conflicts with it.
         public static bool IsGameDefault(Size? scene, string pro)
