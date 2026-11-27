@@ -6,6 +6,13 @@ The version lives in `loader/Version.cs`. To release a change, bump
 `LauncherVersion.Value` there and add a section here with the same number;
 CI fails when the two disagree.
 
+## 0.3.26 - 2026-11-27
+
+* FEAT-RT-042: GT7's Display page has a Screen shape setting (16:9, match the window or display, 16:10, 4:3,
+  21:9, 32:9). The race view fills a screen of that shape: wider shows more to the sides, taller more above and
+  below (with the runtime's FEAT-GT7-202 and the renderer's FIX-SGT-200 / FEAT-SGT-201). Menus stay 16:9. A
+  native ultrawide render resolution, or RYGT_ASPECT / SHADGT_ASPECT set in Advanced, still takes over.
+
 ## 0.3.24 - 2026-11-26
 
 * FIX-RT-037: GT7's Graphics page no longer has the "AMD graphics fix" box. The renderer's own AMD fixes made

@@ -91,6 +91,13 @@ namespace RyGT
             transient.Save();
             Check(!File.Exists(Path.Combine(root, LauncherState.FileName)), "Transient state is not saved");
             Check(GameInfo.Parse("GTS") == GameKind.GTSport && GameInfo.Parse("gt7") == GameKind.GT7 && GameInfo.Parse("gt6") == null, "--game values");
+            // FEAT-RT-042: GT7's screen shape as RYGT_ASPECT / SHADGT_ASPECT.
+            Check(RenderResolution.ScreenShape("auto", new Size(1920, 1200)) == "1920:1200", "Match the window: a 16:10 window passes 1920:1200");
+            Check(RenderResolution.ScreenShape("auto", new Size(2560, 1080)) == "2560:1080", "Match the window: an ultrawide output passes its own shape");
+            Check(RenderResolution.ScreenShape("auto", new Size(1920, 1080)) == "16:9", "Match the window: a 16:9 output is the game's 16:9");
+            Check(RenderResolution.ScreenShape("16:10", Size.Empty) == "16:10" && RenderResolution.ScreenShape("4:3", Size.Empty) == "4:3", "A chosen shape is passed as saved");
+            Check(RenderResolution.ScreenShape(null, Size.Empty) == "16:9" && RenderResolution.ScreenShape("16:9", Size.Empty) == "16:9" &&
+                  RenderResolution.ScreenShape("wide", Size.Empty) == "16:9", "No, 16:9 or an unknown shape is 16:9");
         }
 
         static void SettingsChecks(string root)

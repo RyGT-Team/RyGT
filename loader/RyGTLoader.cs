@@ -3587,6 +3587,17 @@ namespace RyGT
             return new Dictionary<string, object>();
         }
 
+        // The window the game opens, or the desktop for borderless full screen.
+        static Size OutputSize(Func<string, object> setting)
+        {
+            var desktop = new DevMode { Size = (ushort)Marshal.SizeOf(typeof(DevMode)) };
+            bool haveDesktop = EnumDisplaySettings(null, -1, ref desktop);
+            bool borderless = Equals(setting("full_screen"), true) && !Equals(setting("full_screen_mode"), "Fullscreen");
+            return borderless && haveDesktop ? new Size((int)desktop.PelsWidth, (int)desktop.PelsHeight)
+                : WindowSize(setting("window_width") as int? ?? 0, setting("window_height") as int? ?? 0,
+                             (int)desktop.PelsWidth, (int)desktop.PelsHeight);
+        }
+
         // FEAT-RT-031: both games use the same scene and output selection.
         static int ConfigureDisplayLaunch(ProcessStartInfo start, string root, GameInfo game, List<EnvVar> overrides)
         {
@@ -3602,7 +3613,10 @@ namespace RyGT
                 string camera = env["RYGT_ASPECT"], presenter = env["SHADGT_ASPECT"];
                 if (camera != null && presenter != null && camera != presenter)
                     throw new InvalidOperationException("Use the same aspect for RYGT_ASPECT and SHADGT_ASPECT in Advanced.");
-                env["RYGT_ASPECT"] = env["SHADGT_ASPECT"] = camera ?? presenter ?? "16:9";
+                // FEAT-RT-042: the Display page's screen shape, unless Advanced sets one.
+                string saved = setting("screen_aspect") as string;
+                string shape = RenderResolution.ScreenShape(saved, saved == "auto" ? OutputSize(setting) : Size.Empty);
+                env["RYGT_ASPECT"] = env["SHADGT_ASPECT"] = camera ?? presenter ?? shape;
             } else if (env["SHADGT_ASPECT"] == null) {
                 env["SHADGT_ASPECT"] = "16:9";
             }
@@ -3620,12 +3634,7 @@ namespace RyGT
                 AppendSetupLog(root, game.TitleId, "PS4 Pro 4K TV: the game controls scene resolution.");
                 return;
             }
-            var desktop = new DevMode { Size = (ushort)Marshal.SizeOf(typeof(DevMode)) };
-            bool haveDesktop = EnumDisplaySettings(null, -1, ref desktop);
-            bool borderless = Equals(setting("full_screen"), true) && !Equals(setting("full_screen_mode"), "Fullscreen");
-            Size output = borderless && haveDesktop ? new Size((int)desktop.PelsWidth, (int)desktop.PelsHeight)
-                : WindowSize(setting("window_width") as int? ?? 0, setting("window_height") as int? ?? 0,
-                             (int)desktop.PelsWidth, (int)desktop.PelsHeight);
+            Size output = OutputSize(setting);
             string mode = RenderResolution.SavedMode(gts, setting, output);
             string forced = env["RYGT_NATIVE_4K"];
             if (forced != null) mode = forced == "1" ? "3840x2160" : "game";
@@ -3842,6 +3851,20 @@ namespace RyGT
             var effective = Hint("");
             effective.Name = "ScenePreview";
             panel.Controls.Add(effective);
+            if (!gts) {
+                // FEAT-RT-042: the screen's shape (GPU.screen_aspect). GT7 widens its race view for a
+                // wider screen and makes it taller for a taller one (FEAT-GT7-202); menus stay 16:9.
+                var shapes = new[] { "16:9", "auto", "16:10", "4:3", "21:9", "32:9" };
+                var shape = new DarkComboBox { Name = "ScreenShape", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
+                shape.Items.AddRange(new object[] { "16:9 (game default)", "Match the window or display", "16:10", "4:3", "21:9", "32:9" });
+                shape.SelectedIndex = Math.Max(0, Array.IndexOf(shapes, ReadStringSetting("GPU", "screen_aspect", "16:9")));
+                panel.Controls.Add(new SettingRow("Screen shape", shape));
+                panel.Controls.Add(Hint("The race view fills a screen of this shape: wider shows more to the sides, taller more above and below. Menus stay 16:9. A native ultrawide render resolution sets it by itself."));
+                shape.SelectedIndexChanged += delegate {
+                    try { WriteSetting("GPU", "screen_aspect", shapes[shape.SelectedIndex]); }
+                    catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+                };
+            }
             Action showScene = delegate {
                 if (resolution.SelectedIndex < 0 || native.SelectedIndex < 0) return;
                 var output = selectedOutput();

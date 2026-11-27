@@ -114,6 +114,15 @@ namespace RyGT
             return width / height;
         }
 
+        // FEAT-RT-042: RYGT_ASPECT / SHADGT_ASPECT for GT7's saved screen shape. "auto" becomes the output's
+        // own width:height (the window, or the desktop for borderless full screen), so the runtime and the
+        // renderer get one number; an unknown or 16:9 shape is the game's 16:9.
+        public static string ScreenShape(string saved, Size output)
+        {
+            string shape = saved == "auto" ? output.Width + ":" + output.Height : saved;
+            return shape != "auto" && MatchOutputShape(shape) ? shape : "16:9";
+        }
+
         public static bool MatchOutputShape(string value)
         {
             double ratio = ConfiguredAspect(value);
