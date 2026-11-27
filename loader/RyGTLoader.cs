@@ -3602,7 +3602,10 @@ namespace RyGT
                 string camera = env["RYGT_ASPECT"], presenter = env["SHADGT_ASPECT"];
                 if (camera != null && presenter != null && camera != presenter)
                     throw new InvalidOperationException("Use the same aspect for RYGT_ASPECT and SHADGT_ASPECT in Advanced.");
-                env["RYGT_ASPECT"] = env["SHADGT_ASPECT"] = camera ?? presenter ?? "16:9";
+                // FEAT-RT-042: the Display page's screen shape, unless Advanced sets one.
+                string shape = setting("screen_aspect") as string;
+                if (shape != "auto" && !RenderResolution.MatchOutputShape(shape)) shape = "16:9";
+                env["RYGT_ASPECT"] = env["SHADGT_ASPECT"] = camera ?? presenter ?? shape;
             } else if (env["SHADGT_ASPECT"] == null) {
                 env["SHADGT_ASPECT"] = "16:9";
             }
@@ -3842,6 +3845,20 @@ namespace RyGT
             var effective = Hint("");
             effective.Name = "ScenePreview";
             panel.Controls.Add(effective);
+            if (!gts) {
+                // FEAT-RT-042: the screen's shape (GPU.screen_aspect). GT7 widens its race view for a
+                // wider screen and makes it taller for a taller one (FEAT-GT7-202); menus stay 16:9.
+                var shapes = new[] { "16:9", "auto", "16:10", "4:3", "21:9", "32:9" };
+                var shape = new DarkComboBox { Name = "ScreenShape", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
+                shape.Items.AddRange(new object[] { "16:9 (game default)", "Match the window or display", "16:10", "4:3", "21:9", "32:9" });
+                shape.SelectedIndex = Math.Max(0, Array.IndexOf(shapes, ReadStringSetting("GPU", "screen_aspect", "16:9")));
+                panel.Controls.Add(new SettingRow("Screen shape", shape));
+                panel.Controls.Add(Hint("The race view fills a screen of this shape: wider shows more to the sides, taller more above and below. Menus stay 16:9. A native ultrawide render resolution sets it by itself."));
+                shape.SelectedIndexChanged += delegate {
+                    try { WriteSetting("GPU", "screen_aspect", shapes[shape.SelectedIndex]); }
+                    catch (Exception e) { MessageBox.Show(this, "Could not save the setting: " + e.Message); }
+                };
+            }
             Action showScene = delegate {
                 if (resolution.SelectedIndex < 0 || native.SelectedIndex < 0) return;
                 var output = selectedOutput();
