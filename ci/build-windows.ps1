@@ -135,23 +135,10 @@ if ($Target -eq 'Launcher') {
         $env:PATH = "$llvm/bin;$env:PATH"
         $env:LIB = "$($builtins.DirectoryName);$env:LIB"
     }
-    # FIX-GTS-288: the renderer's description (its watermark, the launcher's renderer line) is this
-    # package's GT Sport release describe: RyGTS's own tags (gt-sport-<date>, see AGENTS.md) against this
-    # commit, which shadGT's history can't see; shadGT (FIX-GTS-419) reads it from SHADGT_BUILD_DESCRIBE.
-    # The source is fetched shallow and without tags, so fetch its commits (no file contents) and tags.
-    if ((& git rev-parse --is-shallow-repository) -eq 'true') {
-        & git fetch -q --filter=blob:none --unshallow --tags origin
-    } else {
-        & git fetch -q --tags origin
-    }
-    $describe = & git describe --tags --long --always --match 'gt-sport-*' HEAD
-    if ($LASTEXITCODE -eq 0 -and "$describe" -cmatch '^gt-sport-[0-9A-Za-z._-]+$') {
-        $env:SHADGT_BUILD_DESCRIBE = "$describe"
-        Write-Host "Renderer description: $describe"
-    } else {
-        Remove-Item Env:SHADGT_BUILD_DESCRIBE -ErrorAction SilentlyContinue
-        Write-Warning 'No gt-sport release tag is reachable; the renderer is described by its own commit'
-    }
+    # FIX-RT-043: the renderer describes its own shadGT commit (its watermark, the launcher's renderer
+    # line). FIX-GTS-288 passed RyGT's gt-sport-* describe instead, which named a GT Sport tag and the
+    # RyGT commit in every build after the rygt-* releases.
+    Remove-Item Env:SHADGT_BUILD_DESCRIBE -ErrorAction SilentlyContinue
     Invoke-Checked 'cmake' $cmakeArgs
     # CMake also exports the emulator's compilation of these same sources.
     # Verify only the object compiled for the packaged renderer target.
