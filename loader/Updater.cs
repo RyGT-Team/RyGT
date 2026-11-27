@@ -151,7 +151,7 @@ namespace RyGT
         {
             if (!version.StartsWith("ci-") || version.Contains("+")) return version;
             string renderer = BuildRendererCommit(root);
-            return renderer == null ? version : version + "+" + renderer.Substring(0, 8);
+            return renderer == null ? version : version + "+" + renderer.Substring(0, Math.Min(8, renderer.Length));
         }
 
         /// The folder's release as shown to the player: the installed version, else the version in another
@@ -208,6 +208,10 @@ namespace RyGT
         /// ("https://github.com/RyGT-Team/shadGT.git\n<commit>"), or null.
         static string BuildRendererCommit(string root)
         {
+            // FEAT-RT-045: the renderer's own commit first (its RYGTREV1 string): a test renderer copied into
+            // the folder leaves BUILD_INFO.txt behind.
+            string own = SwitchWalker.RendererCommit(root);
+            if (own != null) return own;
             try
             {
                 string path = Path.Combine(root, "BUILD_INFO.txt");
