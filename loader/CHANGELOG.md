@@ -8,6 +8,21 @@ CI fails when the two disagree.
 
 ## 0.3.28 - 2026-11-28
 
+* FIX-RT-050: a Screen shape wider than 16:9 is rendered at that shape, in both games, and the Display page has
+  the same rows for both. A new row, Wide picture (`GPU.screen_stretch`), chooses how:
+  - Native, the default: the scene is rendered at the screen's shape, at the Render resolution's height (1080
+    lines for Game default: 2576 x 1080 on a 3440 x 1440 screen, 3840 x 1080 on a 32:9 one). GT7 patches its
+    scene, GT Sport allocates its wide scene (WIDE-001). It needs upscaling off, base PS4 mode in GT7 and the
+    Native renderer in GT Sport; when one is missing the preview and Play say so and name the way out.
+  - Stretched, the old method: the game's 16:9 picture is widened over the screen (twice as wide on a 32:9
+    screen, which shows). Fewer pixels to draw. A wide shape saved before this row existed stays stretched.
+  - Both games list the same shapes: 16:9, match the window or display, 16:10, 4:3, 21:9, 32:9. A taller shape
+    is drawn from the 16:9 scene in both games. In GT Sport it keeps the menus and the HUD 16:9 when the
+    renderer has FEAT-SGT-203; with an older renderer they are stretched with the picture, which the preview says.
+  - GT Sport's Screen shape row no longer turns grey beside a fixed Render resolution. Native works with any
+    height; Stretched and the taller shapes are refused there with a message (never played together).
+  - One decision, `RenderResolution.Plan`, for the preview and for Play, table-tested for both games.
+  Not played yet.
 * FIX-RT-049: the Screen shape setting (FEAT-RT-042) reads older profiles, follows the real screen, and exists
   for GT Sport.
   - Since 0.3.20 the launcher started every game at 16:9 whatever the profile said, so GT7's Ultrawide setting

@@ -180,9 +180,14 @@ namespace RyGT
                 return start;
             };
             bool sport = game.Kind == GameKind.GTSport;
-            Check(shape.Enabled && shape.SelectedIndex == 0 && shape.Items.Count == (sport ? 5 : 6) &&
-                  shape.Items.Contains("16:10") && shape.Items.Contains("4:3") != sport,
-                  "Screen shape starts at 16:9; both games list 16:10, GT7 alone 4:3");
+            // FIX-RT-050: the same two rows for both games; a wider shape is rendered natively by default.
+            var widePicture = (System.Windows.Forms.ComboBox)display.Controls.Find("WidePicture", true).Single();
+            Check(shape.Enabled && shape.SelectedIndex == 0 && shape.Items.Count == 6 &&
+                  shape.Items.Contains("16:10") && shape.Items.Contains("4:3") && shape.Items.Contains("32:9"),
+                  "Screen shape starts at 16:9; both games list the same shapes");
+            Check(widePicture.Enabled && widePicture.Items.Count == 2 && widePicture.SelectedIndex == 0 &&
+                  ((string)widePicture.SelectedItem).StartsWith("Native") && ((string)widePicture.Items[1]).Contains("old method"),
+                  "Wide picture starts at Native; Stretched is named the old method");
             var plain = configured(null);
             Check(plain.EnvironmentVariables["SHADGT_ASPECT"] == "16:9" &&
                   plain.EnvironmentVariables["RYGT_ASPECT"] == (sport ? null : "16:9") &&
@@ -199,6 +204,8 @@ namespace RyGT
             using (var before = new LoaderForm(game.Kind, root)) {
                 var kept = (System.Windows.Forms.ComboBox)before.Controls.Find("ScreenShape", true).Single();
                 Check((string)kept.SelectedItem == "Custom (3440:1440)", "An older launcher's shape is shown, " + game.TitleId);
+                var keptPicture = (System.Windows.Forms.ComboBox)before.Controls.Find("WidePicture", true).Single();
+                Check(keptPicture.SelectedIndex == 1, "An older launcher's shape stays stretched, " + game.TitleId);
             }
             var legacy = configured(null);
             Check(legacy.EnvironmentVariables["SHADGT_ASPECT"] == "auto" &&
@@ -210,7 +217,50 @@ namespace RyGT
             shape.SelectedIndex = 1;
             string matched = File.ReadAllText(game.ConfigPath(root));
             Check((string)shape.SelectedItem == "Match the window or display" && matched.Contains("\"screen_aspect\":\"auto\"") &&
-                  (!sport || matched.Contains("\"wide_scene_alloc\":false")), "Match the window is saved for " + game.TitleId);
+                  matched.Contains("\"screen_stretch\":false") && matched.Contains("\"native_resolution\":\"game\"") &&
+                  (!sport || (matched.Contains("\"wide_scene\":true") && matched.Contains("\"wide_scene_alloc\":true") &&
+                              matched.Contains("\"wide_scene_height\":1080"))),
+                  "Match the window is saved as a native shape for " + game.TitleId);
+            Check(shapePreview.Text.Contains("Rendered at 2576 × 1080  →  Window 3440 × 1440") && !shapePreview.Text.Contains("Old method"),
+                  "Native: the scene takes the window's shape at the game's height, " + game.TitleId);
+            if (sport) {
+                // GT Sport's native wide scene needs no patch of the executable: the launch is whole here.
+                var native = configured(null);
+                Check(native.EnvironmentVariables["SHADGT_ASPECT"] == "2576:1080" && native.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" &&
+                      native.EnvironmentVariables["SHADGT_UI_HIRES"] == "1", "The native shape reaches GT Sport");
+            }
+            // The launcher closed and opened again: the choices come back as they were made. (GT Sport's
+            // native scene saves the keys an older profile used for its wide scene; it must not be
+            // read back as an ultrawide Render resolution, which would win over both rows.)
+            using (var again = new LoaderForm(game.Kind, root)) {
+                var againScene = (System.Windows.Forms.ComboBox)again.Controls.Find("SceneResolution", true).Single();
+                var againShape = (System.Windows.Forms.ComboBox)again.Controls.Find("ScreenShape", true).Single();
+                var againPicture = (System.Windows.Forms.ComboBox)again.Controls.Find("WidePicture", true).Single();
+                Check((string)againScene.SelectedItem == "Game default" && (string)againShape.SelectedItem == "Match the window or display" &&
+                      againPicture.SelectedIndex == 0, "A native shape survives reopening as it was chosen, " + game.TitleId);
+                againPicture.SelectedIndex = 1;
+                string stretchedAgain = File.ReadAllText(game.ConfigPath(root));
+                Check(again.Controls.Find("ScenePreview", true).Single().Text.Contains("Old method") &&
+                      stretchedAgain.Contains("\"screen_stretch\":true") && stretchedAgain.Contains("\"native_resolution\":\"game\"") &&
+                      (!sport || stretchedAgain.Contains("\"wide_scene\":false")),
+                      "Stretched can be chosen after reopening, " + game.TitleId);
+                againPicture.SelectedIndex = 0;
+            }
+            if (sport) {
+                var reread = configured(null);
+                Check(reread.EnvironmentVariables["SHADGT_ASPECT"] == "2576:1080" &&
+                      File.ReadAllText(game.ConfigPath(root)).Contains("\"native_resolution\":\"game\""),
+                      "Play reads GT Sport's native shape back from the shape, not as a render resolution");
+            }
+            scene.SelectedItem = "2560 x 1440";
+            Check(shapePreview.Text.Contains("Rendered at 3440 × 1440  →  Window 3440 × 1440") &&
+                  (!sport || File.ReadAllText(game.ConfigPath(root)).Contains("\"wide_scene_height\":1440")),
+                  "Native: the render resolution gives the height, " + game.TitleId);
+            scene.SelectedIndex = 0;
+            widePicture.SelectedIndex = 1;
+            matched = File.ReadAllText(game.ConfigPath(root));
+            Check(matched.Contains("\"screen_stretch\":true") && (!sport || (matched.Contains("\"wide_scene\":false") && matched.Contains("\"wide_scene_alloc\":false"))),
+                  "Stretched is saved for " + game.TitleId);
             Check(shapePreview.Text.Contains("Game default render resolution") && shapePreview.Text.Contains("Old method") &&
                   shapePreview.Text.Contains("stretched over the window") &&
                   shapePreview.Text.Contains("race HUD unstretched") == sport, "The preview names the old method");
