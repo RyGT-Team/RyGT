@@ -399,7 +399,7 @@ namespace RyGT
 
         /// FEAT-RT-045: a nightly's changelog is its commit's description as a bulleted list: each paragraph
         /// (or bullet) of the run's head commit message, without the "Merge pull request" line and the
-        /// trailers. The fallback when the run gives no message.
+        /// trailers, then the commit's author. The fallback when the run gives no message.
         public static string CommitNotes(Dictionary<string, object> run, string fallback)
         {
             var commit = run.ContainsKey("head_commit") ? run["head_commit"] as Dictionary<string, object> : null;
@@ -420,7 +420,12 @@ namespace RyGT
                 }
                 else bullets.Add(string.Join(" ", lines));
             }
-            return bullets.Count == 0 ? fallback : string.Join("\n", bullets.Select(b => "- " + b));
+            if (bullets.Count == 0) return fallback;
+            // The commit's author (the name only, never the e-mail) as the last bullet.
+            var author = commit.ContainsKey("author") ? commit["author"] as Dictionary<string, object> : null;
+            string name = author != null && author.ContainsKey("name") ? (author["name"] as string ?? "").Trim() : "";
+            if (name.Length > 0) bullets.Add("Author: " + name);
+            return string.Join("\n", bullets.Select(b => "- " + b));
         }
 
         /// A release's version: its tag without the prefix ("rygt-2026-11-23" is "2026-11-23").
