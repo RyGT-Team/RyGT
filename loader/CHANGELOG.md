@@ -15,12 +15,14 @@ CI fails when the two disagree.
     (`GPU.aspect_ratio`) is read again while Render resolution is Game default, and shown as it is.
   - A named shape within 3.5% of the screen's real one follows the screen: "21:9" is 2.333, and the screens sold
     as 21:9 are 2.370 (2560 x 1080), 2.389 (3440 x 1440) and 2.400 (3840 x 1600).
-  - GT Sport gets the row, with the wider shapes only (it has no taller race view). Its old "Fill the screen"
-    stretched the menus and the race HUD with the picture; the launcher now uses the renderer's wide picture on
-    the game's own 16:9 scene (WIDE-001 with `wide_scene_alloc=false`): the race fills the screen, the menus
-    stay 16:9 in the middle and the race HUD is not stretched (its sides sit at the screen's edges). It needs
-    the Native renderer, Game default render resolution and a screen wider than 16:9, and is not applied on a
-    PS4 Pro 4K TV; elsewhere GT Sport stays 16:9. Played at 3440 x 1440 on an RTX 4070 only, without upscaling.
+  - GT Sport gets the row: 16:9, match the window or display, 16:10, 21:9, 32:9. Its old "Fill the screen"
+    stretched the menus and the race HUD with the picture; on a screen wider than 16:9 the launcher now uses
+    the renderer's wide picture on the game's own 16:9 scene (WIDE-001 with `wide_scene_alloc=false`): the
+    race fills the screen, the menus stay 16:9 in the middle and the race HUD is not stretched (its sides sit
+    at the screen's edges). It needs the Native renderer. Played at 3440 x 1440 on an RTX 4070 only, without
+    upscaling. On a 16:10 screen that wide picture does not exist: 16:10 is the plain stretch there, the race
+    view right and the menus and the HUD about 11% taller, which the preview says (not played). Both need
+    Game default render resolution and are not applied on a PS4 Pro 4K TV; elsewhere GT Sport stays 16:9.
   - The Display preview says "Old method" when a wider shape stretches the game's 16:9 picture over the screen;
     an ultrawide Render resolution is sharper but needs upscaling off (and base PS4 mode in GT7). Known limit:
     in GT7 with DLSS, some menus lose their interface in this mode, a renderer defect (shadGT #152).

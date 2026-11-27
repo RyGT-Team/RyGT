@@ -180,8 +180,9 @@ namespace RyGT
                 return start;
             };
             bool sport = game.Kind == GameKind.GTSport;
-            Check(shape.Enabled && shape.SelectedIndex == 0 && shape.Items.Count == (sport ? 4 : 6) &&
-                  shape.Items.Contains("4:3") != sport, "Screen shape starts at 16:9; GT Sport lists the wider shapes only");
+            Check(shape.Enabled && shape.SelectedIndex == 0 && shape.Items.Count == (sport ? 5 : 6) &&
+                  shape.Items.Contains("16:10") && shape.Items.Contains("4:3") != sport,
+                  "Screen shape starts at 16:9; both games list 16:10, GT7 alone 4:3");
             var plain = configured(null);
             Check(plain.EnvironmentVariables["SHADGT_ASPECT"] == "16:9" &&
                   plain.EnvironmentVariables["RYGT_ASPECT"] == (sport ? null : "16:9") &&
@@ -231,7 +232,19 @@ namespace RyGT
             if (sport) {
                 var narrow = configured(null);
                 Check(narrow.EnvironmentVariables["SHADGT_ASPECT"] == "16:9" && narrow.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "0" &&
-                      !shapePreview.Text.Contains("Old method"), "GT Sport only fills a screen wider than 16:9");
+                      !shapePreview.Text.Contains("Old method"), "GT Sport does not fill a 16:9 window");
+                // A 16:10 screen: GT Sport's plain stretch, and the preview says what it does to the interface.
+                shape.SelectedItem = "16:10";
+                string tallProfile = System.Text.RegularExpressions.Regex.Replace(
+                    System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(game.ConfigPath(root)), "\"window_width\":\\d+", "\"window_width\":1920"),
+                    "\"window_height\":\\d+", "\"window_height\":1200");
+                string wideWindow = File.ReadAllText(game.ConfigPath(root));
+                File.WriteAllText(game.ConfigPath(root), tallProfile);
+                var tall = configured(null);
+                Check(tall.EnvironmentVariables["SHADGT_ASPECT"] == "auto" && tall.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "0" &&
+                      tall.EnvironmentVariables["SHADGT_UI_HIRES"] == null, "GT Sport's 16:10 is its plain stretch on a 16:10 screen");
+                File.WriteAllText(game.ConfigPath(root), wideWindow);
+                Check(configured(null).EnvironmentVariables["SHADGT_ASPECT"] == "16:9", "GT Sport's 16:10 does nothing in a 16:9 window");
             } else {
                 shape.SelectedItem = "16:10";
                 var taller = configured(null);

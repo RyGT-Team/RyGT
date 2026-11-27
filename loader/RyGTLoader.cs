@@ -3903,10 +3903,10 @@ namespace RyGT
             panel.Controls.Add(effective);
             // FEAT-RT-042: the screen's shape (GPU.screen_aspect). GT7 widens its race view for a
             // wider screen and makes it taller for a taller one (FEAT-GT7-202); menus stay 16:9.
-            // FIX-RT-049: GT Sport has the row too, for wider screens only (it has no taller race
-            // view, and its own stretch would take the menus and the HUD: see the launch), and a
-            // shape saved by a launcher before 0.3.20 is shown and kept.
-            var shapes = (gts ? new[] { "16:9", "auto", "21:9", "32:9" }
+            // FIX-RT-049: GT Sport has the row too. On a wider screen its menus and HUD keep their
+            // shape (see the launch); on a 16:10 screen the whole picture is stretched, which the
+            // preview says. A shape saved by a launcher before 0.3.20 is shown and kept.
+            var shapes = (gts ? new[] { "16:9", "auto", "16:10", "21:9", "32:9" }
                               : new[] { "16:9", "auto", "16:10", "4:3", "21:9", "32:9" }).ToList();
             var shape = new DarkComboBox { Name = "ScreenShape", DropDownStyle = ComboBoxStyle.DropDownList, Width = 260, FlatStyle = FlatStyle.Flat };
             shape.Items.Add("16:9 (game default)");
@@ -3917,7 +3917,7 @@ namespace RyGT
             shape.SelectedIndex = shapes.IndexOf(savedShape);
             panel.Controls.Add(new SettingRow("Screen shape", shape));
             panel.Controls.Add(Hint(gts
-                ? "The race fills a screen wider than 16:9 from the game's own picture; menus stay 16:9 and the race HUD is not stretched. With Game default render resolution and the Native renderer. A native ultrawide render resolution sets it by itself."
+                ? "The race fills a screen wider than 16:9 from the game's own picture; menus stay 16:9 and the race HUD is not stretched (Native renderer). On a 16:10 screen the whole picture is stretched, menus and HUD included. With Game default render resolution. A native ultrawide render resolution sets it by itself."
                 : "The race view fills a screen of this shape: wider shows more to the sides, taller more above and below. Menus stay 16:9. A native ultrawide render resolution sets it by itself."));
             Action showScene = delegate {
                 if (resolution.SelectedIndex < 0 || native.SelectedIndex < 0) return;
@@ -3955,11 +3955,18 @@ namespace RyGT
                         effective.Text = warning + " " + displayed;
                     }
                 }
+                double shapeRatio = RenderResolution.ShapeRatio(shapes[shape.SelectedIndex], output);
+                bool sportTall = gts && shape.Enabled && RenderResolution.IsTallOutput(output) &&
+                                 shapeRatio > 0 && shapeRatio < 16.0 / 9 - 0.01;
                 if (warning == null && stretched)
                     effective.Text += " Old method: the game's picture is stretched over the " +
                                       (screen.SelectedIndex == 0 ? "window" : "display") +
                                       (gts ? ", menus kept 16:9 and the race HUD unstretched" : "") +
                                       "; an ultrawide render resolution is sharper.";
+                else if (warning == null && sportTall)
+                    effective.Text += " The race view fits the taller " + (screen.SelectedIndex == 0 ? "window" : "display") +
+                                      "; GT Sport's menus and HUD are stretched with the picture (about " +
+                                      Math.Round((16.0 / 9 * output.Height / output.Width - 1) * 100) + "% taller).";
                 else if (warning == null && RenderResolution.IsWideOutput(output) && (!scene.HasValue || !RenderResolution.IsWideOutput(scene.Value)))
                     effective.Text += " The 16:9 image is centered.";
             };

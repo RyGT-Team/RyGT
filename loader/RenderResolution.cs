@@ -176,14 +176,23 @@ namespace RyGT
         // and keeps its menus 16:9. GT Sport's plain stretch (GTS-009) takes the menus and the race
         // HUD with the picture, so GT Sport only fills a screen wider than 16:9, from its own scene,
         // through the renderer's wide picture (sportFill; see the launch), and not on a Pro 4K TV,
-        // where the game sets the scene. Anywhere else GT Sport stays 16:9.
+        // where the game sets the scene. On a screen taller than 16:9 (16:10) that wide picture does
+        // not exist: there a taller shape is the plain stretch, the race view right and the menus and
+        // the HUD stretched with the picture. Anywhere else GT Sport stays 16:9.
         public static string LaunchShape(bool gts, string preset, string mode, string pro, Size output,
                                          Func<string, object> setting, out bool sportFill)
         {
             string shape = ExactShape(SavedShape(setting, mode), output);
-            sportFill = gts && preset == null && mode == "game" && pro != "4k" && IsWideOutput(output) &&
-                        ShapeRatio(shape, output) > 16.0 / 9 + 0.01;
-            return preset ?? (gts && !sportFill ? "16:9" : shape);
+            double ratio = ShapeRatio(shape, output);
+            bool own = gts && preset == null && mode == "game" && pro != "4k";
+            sportFill = own && IsWideOutput(output) && ratio > 16.0 / 9 + 0.01;
+            bool sportTall = own && IsTallOutput(output) && ratio > 0 && ratio < 16.0 / 9 - 0.01;
+            return preset ?? (gts && !sportFill && !sportTall ? "16:9" : shape);
+        }
+
+        public static bool IsTallOutput(Size output)
+        {
+            return output.Height > 0 && (double)output.Width / output.Height < 16.0 / 9.0 - 0.01;
         }
 
         // FIX-RT-049: GT Sport's wide picture keeps its menus 16:9 and its race HUD unstretched

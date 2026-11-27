@@ -97,7 +97,14 @@ Check(RenderResolution.LaunchShape(true,null,"2560x1440","off",wide1440,saved,ou
 Check(RenderResolution.LaunchShape(true,"21:9","game","off",wide1440,saved,out fill)=="21:9" && !fill,"a shape set outside the page keeps GT Sport's plain behaviour");
 profile["screen_aspect"]="16:10";
 Check(RenderResolution.LaunchShape(false,null,"game","off",fhd,saved,out fill)=="16:10" && !fill,"GT7 takes a taller shape");
-Check(RenderResolution.LaunchShape(true,null,"game","off",wide1440,saved,out fill)=="16:9" && !fill,"GT Sport has no taller view");
+Check(RenderResolution.LaunchShape(true,null,"game","off",wide1440,saved,out fill)=="16:9" && !fill,"GT Sport's 16:10 does nothing on a wider screen");
+Check(RenderResolution.LaunchShape(true,null,"game","off",fhd,saved,out fill)=="16:9" && !fill,"GT Sport's 16:10 does nothing in a 16:9 window");
+Check(RenderResolution.LaunchShape(true,null,"game","off",tall,saved,out fill)=="auto" && !fill,"GT Sport's 16:10 is the plain stretch on a 16:10 screen");
+Check(RenderResolution.LaunchShape(true,null,"game","off",new Size(1280,1024),saved,out fill)=="16:10" && !fill,"GT Sport's 16:10 stays 16:10 on a 5:4 screen");
+Check(RenderResolution.LaunchShape(true,null,"game","4k",tall,saved,out fill)=="16:9" && RenderResolution.LaunchShape(true,null,"2560x1440","off",tall,saved,out fill)=="16:9","GT Sport's 16:10 needs its own scene outside Pro 4K TV");
+profile["screen_aspect"]="auto";
+Check(RenderResolution.LaunchShape(true,null,"game","off",tall,saved,out fill)=="auto" && !fill,"Match follows a taller screen in GT Sport too");
+Check(RenderResolution.IsTallOutput(tall) && !RenderResolution.IsTallOutput(fhd) && !RenderResolution.IsTallOutput(wide1440),"taller screens");
 profile.Clear();
 profile.Remove("native_renderer"); profile["experimental_render_scale"]=true;
 Check(RenderResolution.Refusal(true,saved,uhd,fhd,"off").Contains("Native renderer"),"experimental scale with a fixed scene");
