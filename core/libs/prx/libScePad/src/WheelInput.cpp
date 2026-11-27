@@ -142,7 +142,7 @@ void WheelInput::open(int deviceIndex) {
     device->buttonLogged.assign(static_cast<std::size_t>(std::max(0, SDL_JoystickNumButtons(joystick))), false);
     // DirectInput reports zeros until the first poll, so the resting positions are read a moment later.
     device->restAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
-    APS5_LOG_OUT("Pad: connected %s: %s (%04x:%04x, %d axes, %d buttons, %d hats)", device->wheel ? "wheel" : "joystick",
+    PAD_WHEEL_LOG("Pad: connected %s: %s (%04x:%04x, %d axes, %d buttons, %d hats)", device->wheel ? "wheel" : "joystick",
         device->name.c_str(), device->vendor, device->product, axes, SDL_JoystickNumButtons(joystick), SDL_JoystickNumHats(joystick));
     startSpring(*device);
     devices.push_back(std::move(device));
@@ -195,26 +195,26 @@ void WheelInput::startSpring(Device& device) {
             device.springEffect = SDL_HapticNewEffect(device.haptic, &effect);
             if (device.springEffect >= 0 && SDL_HapticRunEffect(device.haptic, device.springEffect, 1) == 0) {
                 device.conditionNeedsDirection = attempt == 1;
-                APS5_LOG_OUT("Pad: wheel centering spring at %d%%", springStrength);
+                PAD_WHEEL_LOG("Pad: wheel centering spring at %d%%", springStrength);
                 return;
             }
-            APS5_LOG_OUT("Pad: wheel spring attempt %d failed: %s", attempt + 1, SDL_GetError());
+            PAD_WHEEL_LOG("Pad: wheel spring attempt %d failed: %s", attempt + 1, SDL_GetError());
             if (device.springEffect >= 0) SDL_HapticDestroyEffect(device.haptic, device.springEffect);
             device.springEffect = -1;
         }
     }
     if ((features & SDL_HAPTIC_AUTOCENTER) != 0 && SDL_HapticSetAutocenter(device.haptic, springStrength) == 0) {
-        APS5_LOG_OUT("Pad: wheel autocenter at %d%%", springStrength);
+        PAD_WHEEL_LOG("Pad: wheel autocenter at %d%%", springStrength);
         return;
     }
-    APS5_LOG_OUT("Pad: wheel has no centering spring: %s", SDL_GetError());
+    PAD_WHEEL_LOG("Pad: wheel has no centering spring: %s", SDL_GetError());
 }
 
 void WheelInput::close(SDL_JoystickID instanceId) {
     const auto it = std::find_if(devices.begin(), devices.end(), [instanceId](const auto& device) { return device->instanceId == instanceId; });
     if (it == devices.end()) return;
     Device& device = **it;
-    APS5_LOG_OUT("Pad: disconnected %s", device.name.c_str());
+    PAD_WHEEL_LOG("Pad: disconnected %s", device.name.c_str());
     if (device.haptic != nullptr) {
         for (const int effect : {device.springEffect, device.constantEffect, device.gameSpringEffect, device.damperEffect, device.frictionEffect}) {
             if (effect >= 0) SDL_HapticDestroyEffect(device.haptic, effect);
@@ -249,8 +249,27 @@ bool WheelInput::userOverrides(const Pad::JoystickBinding& binding) const {
 }
 
 void WheelInput::addDefaults(Device& wheel, std::vector<ActiveBinding>& out) const {
-    const auto add = [this, &out](Device& device, Pad::JoystickBinding binding) {
-        if (!userOverrides(binding)) out.push_back({std::move(binding), &device});
+    // `out` holds the user's own bindings so far. FIX-RT-038 (RyGT #130): a default is also left
+    // out when the user bound its wheel button, hat direction or axis to something else, so one
+    // physical control never sends two pad buttons (a button moved to the camera kept shifting).
+    const std::size_t userCount = out.size();
+    const auto add = [this, &out, userCount](Device& device, Pad::JoystickBinding binding) {
+        if (userOverrides(binding)) return;
+        for (std::size_t index = 0; index < userCount; ++index) {
+            const auto& user = out[index];
+            if (user.device != &device) continue;
+            const auto& taken = user.binding;
+            const bool same = (binding.axis >= 0 && taken.axis == binding.axis) ||
+                              (binding.joystickButton >= 0 && taken.joystickButton == binding.joystickButton) ||
+                              (binding.axis < 0 && binding.joystickButton < 0 && binding.hat != 0 && taken.axis < 0 &&
+                               taken.joystickButton < 0 && (taken.hat & binding.hat) != 0);
+            if (same) {
+                PAD_WHEEL_LOG("Pad: default for %s (button %d, axis %d, hat %d) skipped: that control is bound to something else",
+                    device.name.c_str(), binding.joystickButton, binding.axis, binding.hat);
+                return;
+            }
+        }
+        out.push_back({std::move(binding), &device});
     };
     using Pad::InputControl;
     using Pad::PadButton;
@@ -321,7 +340,7 @@ void WheelInput::rebuild() {
     const auto describe = [this](Pad::InputControl control, const char* label) {
         for (const auto& entry : active) {
             if (entry.binding.control != control || entry.binding.axis < 0) continue;
-            APS5_LOG_OUT("Pad: %s = axis %d of %s", label, entry.binding.axis, entry.device->name.c_str());
+            PAD_WHEEL_LOG("Pad: %s = axis %d of %s", label, entry.binding.axis, entry.device->name.c_str());
             return;
         }
     };
@@ -329,6 +348,14 @@ void WheelInput::rebuild() {
     describe(Pad::InputControl::Throttle, "throttle");
     describe(Pad::InputControl::Brake, "brake");
     describe(Pad::InputControl::Clutch, "clutch");
+    // DIAG-RT-039: every binding in use, the user's first, so a button reaching the game twice shows.
+    if (Pad::WheelLog()) {
+        for (const auto& entry : active) {
+            const auto& b = entry.binding;
+            PAD_WHEEL_LOG("Pad: binding: control %d pad button 0x%x <- %s button %d axis %d hat %d%s", static_cast<int>(b.control),
+                static_cast<unsigned>(b.button), entry.device->name.c_str(), b.joystickButton, b.axis, b.hat, b.invert ? " inverted" : "");
+        }
+    }
 }
 
 void WheelInput::HandleEvent(const SDL_Event& event) {
@@ -345,16 +372,16 @@ void WheelInput::logActivity(Device& device) {
         const int value = SDL_JoystickGetAxis(device.joystick, static_cast<int>(axis));
         if (std::abs(value - device.rest[axis]) < 16000) continue;
         device.axisLogged[axis] = true;
-        APS5_LOG_OUT("Pad: %s axis %zu moved (rests at %d)", device.name.c_str(), axis, device.rest[axis]);
+        PAD_WHEEL_LOG("Pad: %s axis %zu moved (rests at %d)", device.name.c_str(), axis, device.rest[axis]);
     }
     for (std::size_t button = 0; button < device.buttonLogged.size(); ++button) {
         if (device.buttonLogged[button] || SDL_JoystickGetButton(device.joystick, static_cast<int>(button)) == 0) continue;
         device.buttonLogged[button] = true;
-        APS5_LOG_OUT("Pad: %s button %zu pressed", device.name.c_str(), button);
+        PAD_WHEEL_LOG("Pad: %s button %zu pressed", device.name.c_str(), button);
     }
     if (!device.hatLogged && SDL_JoystickNumHats(device.joystick) > 0 && SDL_JoystickGetHat(device.joystick, 0) != SDL_HAT_CENTERED) {
         device.hatLogged = true;
-        APS5_LOG_OUT("Pad: %s hat pressed", device.name.c_str());
+        PAD_WHEEL_LOG("Pad: %s hat pressed", device.name.c_str());
     }
 }
 
@@ -509,7 +536,7 @@ bool WheelInput::Update() {
                 const int status = SDL_HapticGetEffectStatus(wheel->haptic, id);
                 if (status == 0) {
                     if (SDL_HapticRunEffect(wheel->haptic, id, 1) < 0)
-                        APS5_LOG_OUT("Pad: could not restart %s force: %s", label, SDL_GetError());
+                        PAD_WHEEL_LOG("Pad: could not restart %s force: %s", label, SDL_GetError());
                 }
             };
             checkEffect("constant", wheel->constantEffect, wanted.constant);
@@ -610,7 +637,7 @@ void WheelInput::playForces(Device& device, const WheelForces& wanted, int steer
         // The title drives the wheel now; its own springs replace the startup one.
         SDL_HapticDestroyEffect(device.haptic, device.springEffect);
         device.springEffect = -1;
-        APS5_LOG_OUT("Pad: wheel force feedback taken over by the %s", "game");
+        PAD_WHEEL_LOG("Pad: wheel force feedback taken over by the %s", "game");
     }
     const auto& settings = Pad::Wheel();
     const int gain = std::clamp(settings.ffbGain, 0, 200);
@@ -656,7 +683,7 @@ void WheelInput::playForces(Device& device, const WheelForces& wanted, int steer
         const int level = scale(settings.ffbInvert ? -constant : constant);
         effect.constant.level = static_cast<Sint16>(std::clamp(level, -32767, 32767));
         const int id = playEffect(device.haptic, device.constantEffect, effect, running);
-        if (id < 0 && device.constantEffect < 0) APS5_LOG_OUT("Pad: wheel refused a constant force: %s", SDL_GetError());
+        if (id < 0 && device.constantEffect < 0) PAD_WHEEL_LOG("Pad: wheel refused a constant force: %s", SDL_GetError());
         device.constantEffect = id;
         device.played.constant = constant;
     }

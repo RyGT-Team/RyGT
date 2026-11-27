@@ -81,6 +81,12 @@ WheelState ReadWheel();
 // The wheel position (-32768..32767) as the game expects it: scaled from the configured rotation
 // to the lock the game set for the current car (if any), and clamped at that lock.
 int SteeringForGame(int steering);
+// The lock to lock in degrees the game last asked for (f8 81), 0 until it does.
+int GameRange();
+// DIAG-RT-039: RYGT_WHEEL_LOG=1 writes the wheel's log lines (settings, bindings, the title's
+// commands, reports and what it reads) to stderr.log at any log level, without the usual caps.
+// Off, they stay on stdout, which the default log level (Warning) does not write.
+bool WheelLog();
 // While the title has the wheel open as a steering wheel, its L1/R1 (the G29's shift paddles)
 // belong to the wheel alone; on the ordinary pad they would also move the camera.
 void SetWheelOpened(bool opened);
@@ -134,5 +140,10 @@ extern "C" bool PadFetchOutput_nid_postfix(std::uint32_t* seenSequence, PadOutpu
 extern "C" void PadPublishInputSlot_nid_postfix(int slot, const PadInputState& input);
 extern "C" bool PadFetchOutputSlot_nid_postfix(int slot, std::uint32_t* seenSequence, PadOutputState* out);
 extern "C" void PadSetConnectedSlots_nid_postfix(std::uint32_t mask);
+
+// DIAG-RT-039: a wheel log line, on stderr while RYGT_WHEEL_LOG is on (APS5_LOG_* from General.hpp).
+#define PAD_WHEEL_LOG(fmt, ...) (Pad::WheelLog() ? APS5_LOG_ERR(fmt, __VA_ARGS__) : APS5_LOG_OUT(fmt, __VA_ARGS__))
+// How many lines a capped wheel log may write: `limit` normally, far more with RYGT_WHEEL_LOG.
+#define PAD_WHEEL_LOG_LIMIT(limit) (Pad::WheelLog() ? (limit) * 50 : (limit))
 
 #endif

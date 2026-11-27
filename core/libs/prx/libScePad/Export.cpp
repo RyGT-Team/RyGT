@@ -38,18 +38,18 @@ int g_parsePad = 0, g_parseWheel = 0, g_readWheel = 0;
 // Logs the first few calls of each wheel-related function (the game's use of them is not
 // documented, so the log is how their arguments are learned).
 bool LogCall(int& count, int limit = 8) {
-    return count++ < limit;
+    return count++ < PAD_WHEEL_LOG_LIMIT(limit);
 }
 
 void LogBytes(const char* what, const void* address, std::size_t size) {
     if (!Pad::Readable(address, size)) {
-        APS5_LOG_OUT("Pad:   %s %p (not readable)", what, address);
+        PAD_WHEEL_LOG("Pad:   %s %p (not readable)", what, address);
         return;
     }
     char text[3 * 64 + 1] = {};
     const auto* bytes = static_cast<const std::uint8_t*>(address);
     for (std::size_t i = 0; i < size && i < 64; ++i) std::snprintf(text + 3 * i, 4, "%02x ", bytes[i]);
-    APS5_LOG_OUT("Pad:   %s %p: %s", what, address, text);
+    PAD_WHEEL_LOG("Pad:   %s %p: %s", what, address, text);
 }
 
 // The wheel handle, or the player's pad while it stands in for the wheel.
@@ -96,7 +96,7 @@ extern "C" {
 
 int APS5_VABI scePadClose_nid_postfix(int handle) {
  if (handle == PAD_WHEEL_HANDLE && g_wheelOpened) {
-  APS5_LOG_OUT("Pad: scePadClose(%s)", "wheel");
+  PAD_WHEEL_LOG("Pad: scePadClose(%s)", "wheel");
   g_wheelOpened = false;
   Pad::SetWheelOpened(false);
   return PAD_OK;
@@ -111,7 +111,7 @@ int APS5_VABI scePadClose_nid_postfix(int handle) {
 
 int APS5_VABI scePadDeviceClassGetExtendedInformation(int handle, PadDeviceClassExtendedInformation* info) {
  static int calls = 0;
- if (LogCall(calls)) APS5_LOG_OUT("Pad: scePadDeviceClassGetExtendedInformation(handle %d)", handle);
+ if (LogCall(calls)) PAD_WHEEL_LOG("Pad: scePadDeviceClassGetExtendedInformation(handle %d)", handle);
  const int slot = SlotOfAnyHandle(handle);
  if (slot < 0) return PAD_ERROR_INVALID_HANDLE;
  if (info == nullptr) return PAD_ERROR_INVALID_ARG;
@@ -129,7 +129,7 @@ int APS5_VABI scePadDeviceClassGetExtendedInformation(int handle, PadDeviceClass
 int APS5_VABI scePadDeviceClassParseData(int handle, const PadData* data, PadDeviceClassData* class_data) {
  static int calls = 0;
  const bool log = LogCall(calls, 4);
- if (log) APS5_LOG_OUT("Pad: scePadDeviceClassParseData(handle %d)", handle);
+ if (log) PAD_WHEEL_LOG("Pad: scePadDeviceClassParseData(handle %d)", handle);
  ++(handle == PAD_WHEEL_HANDLE ? g_parseWheel : g_parsePad);
  if (SlotOfAnyHandle(handle) < 0) return PAD_ERROR_INVALID_HANDLE;
  if (data == nullptr || class_data == nullptr) return PAD_ERROR_INVALID_ARG;
@@ -142,7 +142,13 @@ int APS5_VABI scePadDeviceClassParseData(int handle, const PadData* data, PadDev
  const auto& settings = Pad::Wheel();
  (void)data;
  const WheelState wheel = Pad::ReadWheel();
- const float position = static_cast<float>(wheel.steering) / 32768.0f;
+ // FIX-RT-038 (RyGT #130): the angle follows the steering as the game is given it, scaled to
+ // the car's lock like `wheel`. A real G29 rescales its axis to the range the game sets
+ // (f8 81), so the angle a PS4 derives from it reaches the full rotation at the car's lock.
+ // GT7 steers by this angle over the wheel's rotation: with the physical angle it needed the
+ // whole 900 degrees for a 559-degree car (1.6 times the turning). GT Sport reads `wheel`.
+ const int steering = Pad::SteeringForGame(wheel.steering);
+ const float position = static_cast<float>(steering) / 32768.0f;
  const float degrees = position * static_cast<float>(settings.rotation) * 0.5f;
  const auto pedal = [&settings](std::uint16_t value) {
   return static_cast<std::uint16_t>((static_cast<std::uint32_t>(value) * settings.pedalMax + 32767) / 65535);
@@ -150,7 +156,7 @@ int APS5_VABI scePadDeviceClassParseData(int handle, const PadData* data, PadDev
  class_data->deviceClass = PAD_DEVICE_CLASS_STEERING_WHEEL;
  class_data->dataValid = wheel.connected;
  class_data->classData.steeringWheel.angle = settings.angleRadians ? degrees * 0.017453292f : degrees;
- class_data->classData.steeringWheel.wheel = static_cast<std::uint16_t>(Pad::SteeringForGame(wheel.steering) + 32768);
+ class_data->classData.steeringWheel.wheel = static_cast<std::uint16_t>(steering + 32768);
  class_data->classData.steeringWheel.accelerator = pedal(wheel.throttle);
  class_data->classData.steeringWheel.brake = pedal(wheel.brake);
  class_data->classData.steeringWheel.clutch = pedal(wheel.clutch);
@@ -159,9 +165,10 @@ int APS5_VABI scePadDeviceClassParseData(int handle, const PadData* data, PadDev
  const auto now = std::chrono::steady_clock::now();
  if (log || now >= nextReport) {
   nextReport = now + std::chrono::seconds(3);
-  APS5_LOG_OUT("Pad: wheel reads: parse pad %d, parse wheel %d, read wheel %d", g_parsePad, g_parseWheel, g_readWheel);
-  APS5_LOG_OUT("Pad: wheel data: angle %.1f wheel %u throttle %u brake %u clutch %u valid %d", class_data->classData.steeringWheel.angle,
-   class_data->classData.steeringWheel.wheel, class_data->classData.steeringWheel.accelerator, class_data->classData.steeringWheel.brake,
+  PAD_WHEEL_LOG("Pad: wheel reads: parse pad %d, parse wheel %d, read wheel %d", g_parsePad, g_parseWheel, g_readWheel);
+  PAD_WHEEL_LOG("Pad: wheel data: angle %.1f wheel %u (raw %d, game range %d) throttle %u brake %u clutch %u valid %d",
+   class_data->classData.steeringWheel.angle, class_data->classData.steeringWheel.wheel, wheel.steering, Pad::GameRange(),
+   class_data->classData.steeringWheel.accelerator, class_data->classData.steeringWheel.brake,
    class_data->classData.steeringWheel.clutch, class_data->dataValid);
  }
  return PAD_OK;
@@ -214,7 +221,7 @@ int APS5_VABI scePadGetTriggerEffectState(int handle, PadTriggerEffectStateInfor
 
 int APS5_VABI scePadGetExtControllerInformation(int handle, void* info) {
  static int calls = 0;
- if (LogCall(calls)) APS5_LOG_OUT("Pad: scePadGetExtControllerInformation(handle %d)", handle);
+ if (LogCall(calls)) PAD_WHEEL_LOG("Pad: scePadGetExtControllerInformation(handle %d)", handle);
  const int slot = SlotOfAnyHandle(handle);
  if (slot < 0) return PAD_ERROR_INVALID_HANDLE;
  if (info == nullptr) return PAD_ERROR_INVALID_ARG;
@@ -256,12 +263,12 @@ int APS5_VABI scePadOpen_nid_postfix(int userId, int type, int index, const void
  (void)param;
  static int calls = 0;
  if (!ValidPort(userId, type, index)) {
-  if (LogCall(calls, 8)) APS5_LOG_OUT("Pad: scePadOpen(user 0x%x, type %d, index %d) -> invalid port", userId, type, index);
+  if (LogCall(calls, 8)) PAD_WHEEL_LOG("Pad: scePadOpen(user 0x%x, type %d, index %d) -> invalid port", userId, type, index);
   return PAD_ERROR_INVALID_ARG;
  }
  const int slot = SlotOfUser(userId);
  g_opened[slot] = true;
- if (LogCall(calls, 8)) APS5_LOG_OUT("Pad: scePadOpen(user 0x%x, type %d, index %d) -> handle %d", userId, type, index, PAD_HANDLE + slot);
+ if (LogCall(calls, 8)) PAD_WHEEL_LOG("Pad: scePadOpen(user 0x%x, type %d, index %d) -> handle %d", userId, type, index, PAD_HANDLE + slot);
  return PAD_HANDLE + slot;
 }
 
@@ -299,7 +306,7 @@ int APS5_VABI scePadOpenExt(int userId, int type, int index, const std::uint16_t
   Pad::SetWheelOpened(true);
   result = PAD_WHEEL_HANDLE;
  }
- APS5_LOG_OUT("Pad: scePadOpenExt(user 0x%x, type %d, index %d, device %04x:%04x/%04x) -> 0x%x", userId, type, index, vendor, product, product2,
+ PAD_WHEEL_LOG("Pad: scePadOpenExt(user 0x%x, type %d, index %d, device %04x:%04x/%04x) -> 0x%x", userId, type, index, vendor, product, product2,
   static_cast<unsigned>(result));
  if (param != nullptr) LogBytes("param", param, 16);
  return result;
@@ -307,7 +314,7 @@ int APS5_VABI scePadOpenExt(int userId, int type, int index, const std::uint16_t
 
 int APS5_VABI scePadReadStateExt(int handle, PadData* data) {
  static int calls = 0;
- if (LogCall(calls, 2)) APS5_LOG_OUT("Pad: scePadReadStateExt(handle %d)", handle);
+ if (LogCall(calls, 2)) PAD_WHEEL_LOG("Pad: scePadReadStateExt(handle %d)", handle);
  if (handle == PAD_HANDLE) {
   if (data == nullptr) return PAD_ERROR_INVALID_ARG;
   *data = Pad::ReadState(0);
@@ -361,12 +368,25 @@ int APS5_VABI scePadReadStateExt(int handle, PadData* data) {
  data->connected = wheel.connected;
  data->connected_count = 1;
  data->timestamp = Pad::ReadState(0).timestamp;
+ // DIAG-RT-039: every 2 s with RYGT_WHEEL_LOG, the steering read on this path against what the
+ // title is given, so a reply can tell a scale problem from a range the title never set.
+ if (Pad::WheelLog()) {
+  static auto next = std::chrono::steady_clock::time_point{};
+  const auto now = std::chrono::steady_clock::now();
+  if (now >= next) {
+   next = now + std::chrono::seconds(2);
+   const auto& settings = Pad::Wheel();
+   PAD_WHEEL_LOG("Pad: wheel read ext: steering %d, given %d, game range %d, rotation %d, car lock %d, as %04x:%04x, reads %d (parse wheel %d)",
+    wheel.steering, Pad::SteeringForGame(wheel.steering), Pad::GameRange(), settings.rotation, settings.carLock ? 1 : 0, settings.vendor,
+    settings.product, g_readWheel, g_parseWheel);
+  }
+ }
  return PAD_OK;
 }
 
 int APS5_VABI scePadReadExt(int handle, PadData* data, int num) {
  static int calls = 0;
- if (LogCall(calls, 2)) APS5_LOG_OUT("Pad: scePadReadExt(handle %d, num %d)", handle, num);
+ if (LogCall(calls, 2)) PAD_WHEEL_LOG("Pad: scePadReadExt(handle %d, num %d)", handle, num);
  if (data == nullptr || num <= 0) return PAD_ERROR_INVALID_ARG;
  const int result = scePadReadStateExt(handle, data);
  return result != PAD_OK ? result : 1;
@@ -384,12 +404,20 @@ int APS5_VABI scePadOutputReport(std::uint64_t a, std::uint64_t b, std::uint64_t
   return PAD_OK;
  }
 
- if (static_cast<int>(a) == PAD_WHEEL_HANDLE && (b == 0x30 || b == 0x34) && c > 0x10000 && d >= 2 && d <= 64 && Pad::Readable(reinterpret_cast<const void*>(c), d)) {
-  Pad::WheelReport(reinterpret_cast<const std::uint8_t*>(c), static_cast<std::size_t>(d));
+ const bool forwarded = static_cast<int>(a) == PAD_WHEEL_HANDLE && (b == 0x30 || b == 0x34) && c > 0x10000 && d >= 2 && d <= 64 &&
+  Pad::Readable(reinterpret_cast<const void*>(c), d);
+ if (forwarded) Pad::WheelReport(reinterpret_cast<const std::uint8_t*>(c), static_cast<std::size_t>(d));
+ // DIAG-RT-039: with RYGT_WHEEL_LOG, every report the wheel bridge does not read (another
+ // report id or length), so a command sent some other way shows up.
+ static int unread = 0;
+ if (!forwarded && Pad::WheelLog() && unread++ < 2000) {
+  PAD_WHEEL_LOG("Pad: output report not read by the wheel bridge: handle 0x%llx, report 0x%llx, length %llu", static_cast<unsigned long long>(a),
+   static_cast<unsigned long long>(b), static_cast<unsigned long long>(d));
+  if (c > 0x10000 && d > 0) LogBytes("bytes", reinterpret_cast<const void*>(c), static_cast<std::size_t>(std::min<std::uint64_t>(d, 64)));
  }
  static int calls = 0;
  if (LogCall(calls, 10)) {
-  APS5_LOG_OUT("Pad: scePadOutputReport(0x%llx, 0x%llx, 0x%llx, 0x%llx)", static_cast<unsigned long long>(a), static_cast<unsigned long long>(b),
+  PAD_WHEEL_LOG("Pad: scePadOutputReport(0x%llx, 0x%llx, 0x%llx, 0x%llx)", static_cast<unsigned long long>(a), static_cast<unsigned long long>(b),
    static_cast<unsigned long long>(c), static_cast<unsigned long long>(d));
   if (b > 0x10000) LogBytes("b", reinterpret_cast<const void*>(b), 32);
   if (c > 0x10000) LogBytes("c", reinterpret_cast<const void*>(c), 32);
@@ -401,12 +429,12 @@ int APS5_VABI scePadGetFeatureReport(std::uint64_t a, std::uint64_t b, std::uint
  static int calls = 0;
  if (static_cast<int>(a) == PAD_WHEEL_HANDLE && g_wheelOpened && c > 0x10000 && d >= 1 && d <= 256 &&
   Pad::WheelFeatureReport(static_cast<int>(b), reinterpret_cast<std::uint8_t*>(c), static_cast<std::size_t>(d))) {
-  if (LogCall(calls, 20)) APS5_LOG_OUT("Pad: scePadGetFeatureReport(report 0x%llx, length %llu) -> wheel configuration",
+  if (LogCall(calls, 20)) PAD_WHEEL_LOG("Pad: scePadGetFeatureReport(report 0x%llx, length %llu) -> wheel configuration",
    static_cast<unsigned long long>(b), static_cast<unsigned long long>(d));
   return PAD_OK;
  }
  if (LogCall(calls, 20)) {
-  APS5_LOG_OUT("Pad: scePadGetFeatureReport(0x%llx, 0x%llx, 0x%llx, 0x%llx) -> not supported", static_cast<unsigned long long>(a),
+  PAD_WHEEL_LOG("Pad: scePadGetFeatureReport(0x%llx, 0x%llx, 0x%llx, 0x%llx) -> not supported", static_cast<unsigned long long>(a),
    static_cast<unsigned long long>(b), static_cast<unsigned long long>(c), static_cast<unsigned long long>(d));
   if (b > 0x10000) LogBytes("b", reinterpret_cast<const void*>(b), 16);
   if (c > 0x10000) LogBytes("c", reinterpret_cast<const void*>(c), 16);
@@ -417,7 +445,7 @@ int APS5_VABI scePadGetFeatureReport(std::uint64_t a, std::uint64_t b, std::uint
 int APS5_VABI scePadSetFeatureReport(std::uint64_t a, std::uint64_t b, std::uint64_t c, std::uint64_t d) {
  static int calls = 0;
  if (LogCall(calls, 20)) {
-  APS5_LOG_OUT("Pad: scePadSetFeatureReport(0x%llx, 0x%llx, 0x%llx, 0x%llx)", static_cast<unsigned long long>(a), static_cast<unsigned long long>(b),
+  PAD_WHEEL_LOG("Pad: scePadSetFeatureReport(0x%llx, 0x%llx, 0x%llx, 0x%llx)", static_cast<unsigned long long>(a), static_cast<unsigned long long>(b),
    static_cast<unsigned long long>(c), static_cast<unsigned long long>(d));
   if (b > 0x10000) LogBytes("b", reinterpret_cast<const void*>(b), 32);
   if (c > 0x10000) LogBytes("c", reinterpret_cast<const void*>(c), 32);
@@ -431,7 +459,7 @@ int APS5_VABI scePadReadState(int handle, PadData* data) {
  if (slot < 0) {
   // GT7 reads handles it has not opened (yet); the PS4 answers with an error, not a crash.
   static int calls = 0;
-  if (LogCall(calls, 4)) APS5_LOG_OUT("Pad: scePadReadState(handle %d): not an open handle", handle);
+  if (LogCall(calls, 4)) PAD_WHEEL_LOG("Pad: scePadReadState(handle %d): not an open handle", handle);
   return PAD_ERROR_INVALID_HANDLE;
  }
  if (data == nullptr) return PAD_ERROR_INVALID_ARG;
