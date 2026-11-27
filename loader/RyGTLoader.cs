@@ -1915,15 +1915,19 @@ namespace RyGT
         sealed class NotesView : Control
         {
             readonly List<KeyValuePair<int, string>> entries;
-            readonly Font heading;
+            readonly Font heading, italic;
             readonly List<Rectangle> areas = new List<Rectangle>();
             const TextFormatFlags Flags = TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.Left;
+            const TextFormatFlags Line = TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+            // FEAT-RT-045: a nightly's commit, "title *(author)*": the author in italics after the title.
+            static readonly System.Text.RegularExpressions.Regex Authored = new System.Text.RegularExpressions.Regex(@"^(.*) \*(\([^()]*\))\*$");
 
             public NotesView(List<KeyValuePair<int, string>> entries, Font font)
             {
                 this.entries = entries;
                 Font = font;
                 heading = new Font(font, FontStyle.Bold);
+                italic = new Font(font, FontStyle.Italic);
                 SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
             }
 
@@ -1939,10 +1943,23 @@ namespace RyGT
                     if (entry.Key == 0 && y > 6) y += 10;
                     int x = Indent(entry.Key), w = Math.Max(100, width - x - 12);
                     var size = TextRenderer.MeasureText(entry.Value, entry.Key == 0 ? heading : Font, new Size(w, 0), Flags);
+                    var authored = entry.Key > 0 ? Authored.Match(entry.Value) : System.Text.RegularExpressions.Match.Empty;
+                    if (authored.Success && !FitsOneLine(authored, w))
+                        // A long title wraps, and its author goes on the line under it.
+                        size = new Size(w, TextRenderer.MeasureText(authored.Groups[1].Value, Font, new Size(w, 0), Flags).Height +
+                                           TextRenderer.MeasureText(authored.Groups[2].Value, italic, new Size(w, 0), Line).Height);
+                    else if (authored.Success)
+                        size = new Size(w, TextRenderer.MeasureText(authored.Groups[1].Value, Font, new Size(w, 0), Line).Height);
                     areas.Add(new Rectangle(x, y, w, size.Height));
                     y += size.Height + 6;
                 }
                 return y + 4;
+            }
+
+            bool FitsOneLine(System.Text.RegularExpressions.Match authored, int width)
+            {
+                return TextRenderer.MeasureText(authored.Groups[1].Value + " ", Font, Size.Empty, Line).Width +
+                       TextRenderer.MeasureText(authored.Groups[2].Value, italic, Size.Empty, Line).Width <= width;
             }
 
             protected override void OnPaint(PaintEventArgs e)
@@ -1955,13 +1972,31 @@ namespace RyGT
                     var entry = entries[k];
                     if (entry.Key > 0)
                         TextRenderer.DrawText(e.Graphics, entry.Key == 1 ? "\u2022" : "\u2013", Font, new Point(area.X - 13, area.Y), Dark.DimText, TextFormatFlags.NoPrefix);
+                    var authored = entry.Key > 0 ? Authored.Match(entry.Value) : System.Text.RegularExpressions.Match.Empty;
+                    if (authored.Success)
+                    {
+                        string title = authored.Groups[1].Value, author = authored.Groups[2].Value;
+                        if (FitsOneLine(authored, area.Width))
+                        {
+                            TextRenderer.DrawText(e.Graphics, title, Font, area.Location, Dark.Text, Line);
+                            int x = area.X + TextRenderer.MeasureText(title + " ", Font, Size.Empty, Line).Width;
+                            TextRenderer.DrawText(e.Graphics, author, italic, new Point(x, area.Y), Dark.DimText, Line);
+                        }
+                        else
+                        {
+                            int h = TextRenderer.MeasureText(title, Font, new Size(area.Width, 0), Flags).Height;
+                            TextRenderer.DrawText(e.Graphics, title, Font, new Rectangle(area.X, area.Y, area.Width, h), Dark.Text, Flags);
+                            TextRenderer.DrawText(e.Graphics, author, italic, new Point(area.X, area.Y + h), Dark.DimText, Line);
+                        }
+                        continue;
+                    }
                     TextRenderer.DrawText(e.Graphics, entry.Value, entry.Key == 0 ? heading : Font, area, entry.Key == 0 ? Color.White : Dark.Text, Flags);
                 }
             }
 
             protected override void Dispose(bool disposing)
             {
-                if (disposing) heading.Dispose();
+                if (disposing) { heading.Dispose(); italic.Dispose(); }
                 base.Dispose(disposing);
             }
         }

@@ -404,10 +404,13 @@ namespace RyGT
         {
             var commit = run.ContainsKey("head_commit") ? run["head_commit"] as Dictionary<string, object> : null;
             string line = commit == null ? null : CommitLine(commit);
-            return line == null ? fallback : "- " + line;
+            return line == null ? fallback : ChangesHeading + "\n- " + line;
         }
 
-        /// "title (author)" for a commit object (GitHub's head_commit, or a commits list entry's "commit"):
+        /// The heading above a nightly's commits in the Changelog window.
+        const string ChangesHeading = "## Changes:";
+
+        /// "title *(author)*" for a commit object (GitHub's head_commit, or a commits list entry's "commit"):
         /// a merge's title is its pull request's title (the line after "Merge pull request #..."). The
         /// author's name only, never the e-mail. Null without a title.
         static string CommitLine(Dictionary<string, object> commit)
@@ -423,7 +426,7 @@ namespace RyGT
             }
             var author = commit.ContainsKey("author") ? commit["author"] as Dictionary<string, object> : null;
             string name = author != null && author.ContainsKey("name") ? (author["name"] as string ?? "").Trim() : "";
-            return name.Length > 0 ? title + " (" + name + ")" : title;
+            return name.Length > 0 ? title + " *(" + name + ")*" : title; // the Changelog window shows it in italics
         }
 
         /// FEAT-RT-045: a newer nightly's notes become every commit since the installed build, newest first,
@@ -438,7 +441,7 @@ namespace RyGT
                 var lines = new List<string>();
                 lines.AddRange(CompareLines(Repository, BuildCommit(root), release.Commit));
                 lines.AddRange(CompareLines(RendererRepository, BuildRendererCommit(root), release.RendererCommit));
-                if (lines.Count > 0) release.Notes = string.Join("\n", lines.Select(l => "- " + l));
+                if (lines.Count > 0) release.Notes = ChangesHeading + "\n" + string.Join("\n", lines.Select(l => "- " + l));
             }
             catch { }
         }

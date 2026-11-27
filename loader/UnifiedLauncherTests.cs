@@ -350,7 +350,7 @@ namespace RyGT
                 "Merge pull request #151 from RyGT-Team/feat/x\n\nFEAT-SGT-189: GT7 DLSS below\nthe output\n\n- one\n- two\n  wrapped\n\nCo-Authored-By: A <a@b>" },
                 { "author", new Dictionary<string, object> { { "name", "Will" }, { "email", "w@example.com" } } } } } };
             string nightlyNotes = Updater.CommitNotes(run, "fallback");
-            Check(nightlyNotes == "- FEAT-SGT-189: GT7 DLSS below (Will)", "Nightly notes are the commit title and author: " + nightlyNotes);
+            Check(nightlyNotes == "## Changes:\n- FEAT-SGT-189: GT7 DLSS below *(Will)*", "Nightly notes are the commit title and author: " + nightlyNotes);
             Check(Updater.CommitNotes(new Dictionary<string, object>(), "fallback") == "fallback", "Nightly notes fall back without a message");
         }
 
