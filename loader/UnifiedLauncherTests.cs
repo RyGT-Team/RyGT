@@ -375,6 +375,35 @@ namespace RyGT
             Check(File.ReadAllText(Path.Combine(split, @"libs\libSceVideoOut.prx")) == "old renderer" && File.ReadAllText(Path.Combine(split, @"libs\libc.prx")) == "runtime",
                   "A roll back puts the renderer back");
             Check(Updater.Display(Updater.InstalledVersion(split)) == "nightly 0.3.27", "A nightly is shown by its runtime version: " + Updater.Display(Updater.InstalledVersion(split)));
+            // Both parts in one update (runtime from RyGT, renderer from shadGT) and one roll back for both.
+            string runtimePackage = Path.Combine(folder, "rtp"), runtimeArtifact = Path.Combine(folder, "rta"), runtimeInner = Path.Combine(runtimePackage, "r");
+            string newRygt = new string('d', 40);
+            Put(Path.Combine(runtimeInner, "BUILD_INFO.txt"), "{\"commit\": \"" + newRygt + "\", \"launcher_version\": \"0.3.28\"}");
+            Put(Path.Combine(runtimeInner, @"libs\libc.prx"), "new runtime");
+            Put(Path.Combine(runtimeInner, @"user\custom_configs\CUSA03220.json"), "{}");
+            Put(Path.Combine(runtimeInner, @"libs\libSceVideoOut.prx"), "a renderer in the runtime package");
+            Put(Path.Combine(runtimeInner, "SHA256SUMS.txt"), string.Concat(new[] { "BUILD_INFO.txt", "libs/libc.prx", "user/custom_configs/CUSA03220.json", "libs/libSceVideoOut.prx" }
+                .Select(f => hash(Path.Combine(runtimeInner, f.Replace('/', '\\'))) + "  " + f + "\n")));
+            Directory.CreateDirectory(runtimeArtifact);
+            string runtimeZip = Path.Combine(runtimeArtifact, "RyGT-runtime-dddddddd.zip");
+            System.IO.Compression.ZipFile.CreateFromDirectory(runtimePackage, runtimeZip);
+            Put(runtimeZip + ".sha256", hash(runtimeZip) + "  RyGT-runtime-dddddddd.zip\n");
+            string runtimeArtifactZip = Path.Combine(folder, "rt.zip");
+            System.IO.Compression.ZipFile.CreateFromDirectory(runtimeArtifact, runtimeArtifactZip);
+            var both = new ReleaseInfo { Artifact = true, Version = "ci-dddddddd+cccccccc", Commit = newRygt, RendererCommit = newer, ZipName = "RyGT-ci-dddddddd.zip",
+                                         ZipUrl = new Uri(runtimeArtifactZip).AbsoluteUri, RendererZipUrl = new Uri(artifactZip).AbsoluteUri };
+            string infoBefore = File.ReadAllText(Path.Combine(split, "BUILD_INFO.txt"));
+            Updater.Install(split, GameInfo.GTSport.TitleId, both, (text, fraction) => { });
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libc.prx")) == "new runtime" && File.ReadAllText(Path.Combine(split, @"libs\libSceVideoOut.prx")) == "new renderer",
+                  "One update installs the runtime and the renderer (not the runtime package's renderer)");
+            Check(File.ReadAllText(Path.Combine(split, "BUILD_INFO.txt")).Contains(newRygt), "The runtime package's BUILD_INFO.txt is installed");
+            Updater.RollBack(split);
+            Check(File.ReadAllText(Path.Combine(split, @"libs\libc.prx")) == "runtime" && File.ReadAllText(Path.Combine(split, @"libs\libSceVideoOut.prx")) == "old renderer" &&
+                  File.ReadAllText(Path.Combine(split, "BUILD_INFO.txt")) == infoBefore && !File.Exists(Path.Combine(split, @"user\custom_configs\CUSA03220.json")),
+                  "One roll back puts back the runtime, the renderer and BUILD_INFO.txt, and removes what the update added");
+            var rendererOnly = new ReleaseInfo { Artifact = true, Version = "ci-+cccccccc", RendererCommit = newer, RendererZipUrl = new Uri(artifactZip).AbsoluteUri };
+            Check(Updater.IsNewer(rendererOnly, Updater.InstalledVersion(split), split) && Updater.Display(rendererOnly.Version) == "nightly renderer cccccccc",
+                  "A nightly with only a renderer part compares by the renderer");
             // FEAT-RT-045: a nightly's changelog is its commit description as bullets.
             var run = new Dictionary<string, object> { { "head_commit", new Dictionary<string, object> { { "message",
                 "Merge pull request #151 from RyGT-Team/feat/x\n\nFEAT-SGT-189: GT7 DLSS below\nthe output\n\n- one\n- two\n  wrapped\n\nCo-Authored-By: A <a@b>" },

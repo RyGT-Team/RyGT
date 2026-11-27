@@ -327,6 +327,9 @@ namespace RyGT
                     var fields = Encoding.ASCII.GetString(data, i, end - i).Split('|');
                     if (fields.Length < 3) continue;
                     if (System.Text.RegularExpressions.Regex.IsMatch(fields[2], "^[0-9a-f]{40}$")) return fields[2];
+                    // A RyGT release describe (gt-sport-..., rygt-...: FIX-GTS-419 before FIX-SGT-212) names a RyGT
+                    // commit, not the renderer's.
+                    if (fields[1].StartsWith("gt-sport-", StringComparison.Ordinal) || fields[1].StartsWith("rygt-", StringComparison.Ordinal)) continue;
                     var hash = System.Text.RegularExpressions.Regex.Match(fields[1], "(?:^|-g)([0-9a-f]{7,40})(?:-dirty)?$");
                     if (hash.Success) return hash.Groups[1].Value;
                 }

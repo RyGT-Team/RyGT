@@ -285,6 +285,7 @@ namespace RyGT
             lock (Labels)
                 if (Labels.TryGetValue(version, out label)) return "nightly " + label; // FEAT-RT-046
             int plus = version.IndexOf('+');
+            if (plus == 3) return "nightly renderer " + version.Substring(4); // FEAT-RT-046: no runtime part
             return plus < 0 ? "nightly " + version.Substring(3)
                             : "nightly " + version.Substring(3, plus - 3) + ", renderer " + version.Substring(plus + 1);
         }
@@ -298,6 +299,13 @@ namespace RyGT
         {
             if (candidate == null) return false;
             string commit = BuildCommit(root);
+            // FEAT-RT-046: a nightly with only a renderer part (RyGT's runtime packages expired) is newer only by
+            // its renderer.
+            if (candidate.Artifact && string.IsNullOrEmpty(candidate.Commit))
+            {
+                string installedRenderer = BuildRendererCommit(root);
+                return !string.IsNullOrEmpty(candidate.RendererCommit) && (installedRenderer == null || !SameCommit(candidate.RendererCommit, installedRenderer));
+            }
             if (commit != null && !string.IsNullOrEmpty(candidate.Commit) && SameCommit(candidate.Commit, commit))
             {
                 // FIX-RT-044: the same RyGT commit with another renderer is a newer build (a renderer change
