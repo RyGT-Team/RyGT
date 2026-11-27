@@ -397,35 +397,68 @@ namespace RyGT
             return null;
         }
 
-        /// FEAT-RT-045: a nightly's changelog is its commit's description as a bulleted list: each paragraph
-        /// (or bullet) of the run's head commit message, without the "Merge pull request" line and the
-        /// trailers, then the commit's author. The fallback when the run gives no message.
+        /// FEAT-RT-045: a nightly's changelog is a list of commits, one bullet each: the commit's title and
+        /// its author's name in parentheses ("- GS/HW: fix page widths (refraction)"). Without the commits
+        /// since the installed build (ChangesSince), the run's own commit; the fallback without one.
         public static string CommitNotes(Dictionary<string, object> run, string fallback)
         {
             var commit = run.ContainsKey("head_commit") ? run["head_commit"] as Dictionary<string, object> : null;
-            string message = commit != null && commit.ContainsKey("message") ? commit["message"] as string ?? "" : "";
-            var bullets = new List<string>();
-            foreach (string paragraph in Regex.Split(message.Replace("\r", ""), @"\n\s*\n"))
+            string line = commit == null ? null : CommitLine(commit);
+            return line == null ? fallback : "- " + line;
+        }
+
+        /// "title (author)" for a commit object (GitHub's head_commit, or a commits list entry's "commit"):
+        /// a merge's title is its pull request's title (the line after "Merge pull request #..."). The
+        /// author's name only, never the e-mail. Null without a title.
+        static string CommitLine(Dictionary<string, object> commit)
+        {
+            string message = commit.ContainsKey("message") ? commit["message"] as string ?? "" : "";
+            var lines = message.Replace("\r", "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+            if (lines.Count == 0) return null;
+            string title = lines[0];
+            if (title.StartsWith("Merge pull request #", StringComparison.Ordinal))
             {
-                var lines = paragraph.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 &&
-                    !l.StartsWith("Merge pull request #", StringComparison.Ordinal) &&
-                    !Regex.IsMatch(l, @"^(Co-Authored-By|Signed-off-by):", RegexOptions.IgnoreCase)).ToList();
-                if (lines.Count == 0) continue;
-                if (lines.Any(l => l.StartsWith("- ") || l.StartsWith("* ")))
-                {
-                    // Bullets stay bullets; a wrapped bullet's lines join it.
-                    foreach (string line in lines)
-                        if (line.StartsWith("- ") || line.StartsWith("* ") || bullets.Count == 0) bullets.Add(line.TrimStart('-', '*', ' '));
-                        else bullets[bullets.Count - 1] += " " + line;
-                }
-                else bullets.Add(string.Join(" ", lines));
+                string body = lines.Skip(1).FirstOrDefault(l => !Regex.IsMatch(l, @"^(Co-Authored-By|Signed-off-by):", RegexOptions.IgnoreCase));
+                if (body != null) title = body;
             }
-            if (bullets.Count == 0) return fallback;
-            // The commit's author (the name only, never the e-mail) as the last bullet.
             var author = commit.ContainsKey("author") ? commit["author"] as Dictionary<string, object> : null;
             string name = author != null && author.ContainsKey("name") ? (author["name"] as string ?? "").Trim() : "";
-            if (name.Length > 0) bullets.Add("Author: " + name);
-            return string.Join("\n", bullets.Select(b => "- " + b));
+            return name.Length > 0 ? title + " (" + name + ")" : title;
+        }
+
+        /// FEAT-RT-045: a newer nightly's notes become every commit since the installed build, newest first,
+        /// in RyGT and then in the renderer (two GitHub compare requests), as the commits the update brings.
+        /// Merge commits are left out: their pull requests' commits are listed. The notes stay as they are
+        /// when the installed commits are not known or GitHub doesn't answer.
+        public static void ChangesSince(ReleaseInfo release, string root)
+        {
+            if (release == null || !release.Artifact) return;
+            try
+            {
+                var lines = new List<string>();
+                lines.AddRange(CompareLines(Repository, BuildCommit(root), release.Commit));
+                lines.AddRange(CompareLines(RendererRepository, BuildRendererCommit(root), release.RendererCommit));
+                if (lines.Count > 0) release.Notes = string.Join("\n", lines.Select(l => "- " + l));
+            }
+            catch { }
+        }
+
+        static List<string> CompareLines(string repository, string installed, string candidate)
+        {
+            var lines = new List<string>();
+            if (string.IsNullOrEmpty(installed) || string.IsNullOrEmpty(candidate) || SameCommit(installed, candidate)) return lines;
+            var compare = Json("https://api.github.com/repos/" + repository + "/compare/" + installed + "..." + candidate) as Dictionary<string, object>;
+            object commits;
+            if (compare == null || !compare.TryGetValue("commits", out commits)) return lines;
+            foreach (Dictionary<string, object> entry in ((object[])commits).OfType<Dictionary<string, object>>().Reverse())
+            {
+                var parents = entry.ContainsKey("parents") ? entry["parents"] as object[] : null;
+                if (parents != null && parents.Length > 1) continue;
+                var commit = entry.ContainsKey("commit") ? entry["commit"] as Dictionary<string, object> : null;
+                string line = commit == null ? null : CommitLine(commit);
+                if (line != null) lines.Add(line);
+            }
+            return lines;
         }
 
         /// A release's version: its tag without the prefix ("rygt-2026-11-23" is "2026-11-23").

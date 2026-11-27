@@ -2875,12 +2875,15 @@ namespace RyGT
             }
             string channel = UpdateChannel();
             GameKind game = target;
+            string folder = root;
             ThreadPool.QueueUserWorkItem(delegate
             {
                 ReleaseInfo latest = null;
                 Exception error = null;
                 try { latest = Updater.Latest(channel); }
                 catch (Exception e) { error = e; }
+                // FEAT-RT-045: a newer nightly's changelog lists the commits it brings.
+                if (latest != null && latest.Artifact && Updater.IsNewer(latest, installed, folder)) Updater.ChangesSince(latest, folder);
                 try { BeginInvoke((Action)delegate { ShowUpdate(game, installed, channel, latest, error, manual); }); }
                 catch (InvalidOperationException) { } // closed meanwhile
             });
