@@ -3620,6 +3620,18 @@ namespace RyGT
                 App0Layout.FileContains(Path.Combine(root, SwitchWalker.RendererFile), "RYGT_DLSS_OUTPUT_SIZE\0");
         }
 
+        // FEAT-RT-041: GT7's scene below the output for FSR 3.1 too (shadGT FEAT-SGT-198), with the same
+        // conditions as DLSS's and AMD's FidelityFX library next to the game.
+        static bool SceneFsrAvailable(string root, Func<string, object> setting, string enabled)
+        {
+            return enabled != "0" && !Equals(setting("native_renderer"), false) &&
+                !Equals(setting("hdr_allowed"), true) && !Equals(setting("framegen_enabled"), true) &&
+                !Equals(setting("dlssg_enabled"), true) &&
+                File.Exists(Path.Combine(root, "amd_fidelityfx_vk.dll")) &&
+                App0Layout.FileContains(Path.Combine(root, SwitchWalker.RendererFile), "RYGT_FSR_GUEST_OUTPUT\0") &&
+                App0Layout.FileContains(Path.Combine(root, SwitchWalker.RendererFile), "RYGT_DLSS_OUTPUT_SIZE\0");
+        }
+
         static void ApplyNativeResolution(ProcessStartInfo start, string root, GameInfo game, Func<string, object> setting)
         {
             var env = start.EnvironmentVariables;
@@ -3643,9 +3655,12 @@ namespace RyGT
             bool dlss = Equals(setting("dlss_enabled"), true) && !Equals(setting("fsr_enabled"), true);
             string renderer = Path.Combine(root, SwitchWalker.RendererFile);
             string preset = RenderResolution.SavedDlssMode(gts, setting);
-            bool temporal = dlss && (size.HasValue || mode == "game") && pro == "off" &&
-                SceneDlssAvailable(root, setting, env["RYGT_DLSS_GUEST_OUTPUT"]) &&
+            bool fsr = !gts && !dlss && Equals(setting("fsr_enabled"), true) && !Equals(setting("fsr3_enabled"), false);
+            bool temporal = (dlss || fsr) && (size.HasValue || mode == "game") && pro == "off" &&
+                (dlss ? SceneDlssAvailable(root, setting, env["RYGT_DLSS_GUEST_OUTPUT"])
+                      : SceneFsrAvailable(root, setting, env["RYGT_DLSS_GUEST_OUTPUT"])) &&
                 (preset != "native" || env["RYGT_NATIVE_DLAA"] != "0");
+            string upscalerName = dlss ? "DLSS" : "FSR 3.1";
             Size? input = null;
             if (temporal) {
                 size = size ?? RenderResolution.NativeSize(RenderResolution.Auto, output);
@@ -3655,15 +3670,21 @@ namespace RyGT
                 env["RYGT_DLSS_SCENE_SIZE"] = RenderResolution.ModeKey(input.Value);
                 env["RYGT_DLSS_OUTPUT_SIZE"] = RenderResolution.ModeKey(size.Value);
                 env["RYGT_NATIVE_DLAA"] = preset == "native" ? "1" : "0";
-                env["SHADGT_DLSS_STREAMLINE"] = "0";
-                env["SHADGT_DLSS_TEMPORAL"] = "1";
+                if (dlss) {
+                    env["SHADGT_DLSS_STREAMLINE"] = "0";
+                    env["SHADGT_DLSS_TEMPORAL"] = "1";
+                } else {
+                    // FEAT-RT-041: FSR 3.1 rebuilds the scene in the frame instead of at the present.
+                    env["RYGT_FSR_GUEST_OUTPUT"] = "1";
+                    env["SHADGT_FSR_TEMPORAL"] = "1";
+                }
                 if (gts && !RenderResolution.SupportsWideScene(size.Value)) env["SHADGT_UI_HIRES"] = "0";
                 env["SHADGT_DLSS_QUALITY"] = preset == "native" ? "dlaa" : preset;
                 env["SHADGT_UPSCALE_QUALITY"] = preset;
-                AppendSetupLog(root, game.TitleId, "Temporal DLSS " + preset + ": scene " +
+                AppendSetupLog(root, game.TitleId, "Temporal " + upscalerName + " " + preset + ": scene " +
                     RenderResolution.ModeKey(input.Value) + ", output " + RenderResolution.ModeKey(size.Value) + ".");
-            } else if (dlss && size.HasValue) {
-                AppendSetupLog(root, game.TitleId, "Temporal DLSS at the selected resolution is unavailable. Using the game's default scene and the compatibility upscaler.");
+            } else if ((dlss || fsr) && size.HasValue) {
+                AppendSetupLog(root, game.TitleId, "Temporal " + upscalerName + " at the selected resolution is unavailable. Using the game's default scene and the compatibility upscaler.");
                 return;
             }
             bool wide = size.HasValue && RenderResolution.SupportsWideScene(size.Value);
@@ -3878,6 +3899,8 @@ namespace RyGT
             effective.Name = "ScenePreview";
             panel.Controls.Add(effective);
             bool dlssLayoutInstalled = RendererReads("RYGT_DLSS_OUTPUT_SIZE");
+            bool fsrLayoutInstalled = !gts && dlssLayoutInstalled && RendererReads("RYGT_FSR_GUEST_OUTPUT") &&
+                                      File.Exists(Path.Combine(root, "amd_fidelityfx_vk.dll")); // FEAT-RT-041
             Action showScene = delegate {
                 if (resolution.SelectedIndex < 0 || native.SelectedIndex < 0) return;
                 var output = selectedOutput();
@@ -3893,8 +3916,10 @@ namespace RyGT
                 effective.ForeColor = warning != null ? Dark.AccentText : Dark.DimText;
                 string rendered = scene.HasValue ? "Rendered at " + scene.Value.Width + " × " + scene.Value.Height :
                                                    "Game default render resolution";
-                if (!checker && dlssLayoutInstalled && SavedProMode() == "off" &&
-                    ReadSetting("GPU", "dlss_enabled", false) && !ReadSetting("GPU", "fsr_enabled", false) &&
+                bool previewDlss = ReadSetting("GPU", "dlss_enabled", false) && !ReadSetting("GPU", "fsr_enabled", false);
+                bool previewFsr = fsrLayoutInstalled && !previewDlss && ReadSetting("GPU", "fsr_enabled", false) &&
+                                  ReadSetting("GPU", "fsr3_enabled", true);
+                if (!checker && dlssLayoutInstalled && SavedProMode() == "off" && (previewDlss || previewFsr) &&
                     ReadSetting("GPU", "native_renderer", true) && !ReadSetting("GPU", "hdr_allowed", false) &&
                     !ReadSetting("GPU", "framegen_enabled", false) && !ReadSetting("GPU", "dlssg_enabled", false) &&
                     Environment.GetEnvironmentVariable("RYGT_DLSS_GUEST_OUTPUT") != "0") {
@@ -3904,7 +3929,8 @@ namespace RyGT
                     var dlssOutput = scene.Value;
                     var input = RenderResolution.DlssScene(dlssOutput, RenderResolution.ResolveDlssMode(preset, dlssOutput));
                     rendered = "Scene " + input.Width + " × " + input.Height + "  →  " +
-                        (preset == "native" ? "DLAA " : "DLSS ") + dlssOutput.Width + " × " + dlssOutput.Height;
+                        (previewFsr ? (preset == "native" ? "FSR 3.1 Native AA " : "FSR 3.1 ") :
+                         preset == "native" ? "DLAA " : "DLSS ") + dlssOutput.Width + " × " + dlssOutput.Height;
                 }
                 effective.Text = warning != null ? warning + " " + displayed : rendered + "  →  " + displayed;
                 if (warning == null && RenderResolution.IsWideOutput(output) && (!scene.HasValue || !RenderResolution.IsWideOutput(scene.Value)))

@@ -101,6 +101,8 @@ namespace RyGT
             upscaling.Controls.Add(detailNote);
             bool detailKnown = RendererReads("RYGT_DLSS_TEMPORAL_MIP_EXTRA");
             bool guestDlssKnown = RendererReads("RYGT_DLSS_OUTPUT_SIZE");
+            // FEAT-RT-041: FSR 3.1 draws the scene below the output too, with the same quality modes.
+            bool guestFsrKnown = guestDlssKnown && RendererReads("RYGT_FSR_GUEST_OUTPUT");
 
             // NVIDIA files: the Download button, the status of what is there, and Add from a folder.
             var dlssStatus = noteLabel();
@@ -161,7 +163,8 @@ namespace RyGT
             {
                 bool dlssOk = dlssReady(), dlssgOk = dlssgReady();
                 int m = method.SelectedIndex;
-                string autoLabel = m == 3 ? RenderResolution.DlssLabels[0] : "Auto (window size)";
+                bool fsrScene = m == 2 && guestFsrKnown && fsr3Installed;
+                string autoLabel = m == 3 || fsrScene ? RenderResolution.DlssLabels[0] : "Auto (window size)";
                 if (!Equals(quality.Items[0], autoLabel)) quality.Items[0] = autoLabel;
                 string nativeLabel = m == 3 ? DlaaLabel : "Native (anti-aliasing only)";
                 if (!Equals(quality.Items[1], nativeLabel)) quality.Items[1] = nativeLabel;
@@ -178,6 +181,9 @@ namespace RyGT
                     qualityNote.Text = m == 1 ? "FSR 1 always scales to the window size." : "Pick FSR 3.1 or DLSS to choose a quality.";
                 else if (m == 3)
                     qualityNote.Text = DlssModeGuide(q);
+                else if (fsrScene)
+                    qualityNote.Text = q == 1 ? "FSR 3.1 anti-aliases the scene at the full render resolution."
+                                              : DlssModeGuide(q).Replace("DLAA", "FSR 3.1 native anti-aliasing");
                 else if (q == 0)
                     qualityNote.Text = "Auto targets the window size (1920 × 1080 → 3840 × 2160 in a 4K window).";
                 else
