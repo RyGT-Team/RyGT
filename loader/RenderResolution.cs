@@ -187,6 +187,7 @@ namespace RyGT
             public Size? Scene;        // the scene's size; null is the game's own
             public string Aspect;      // SHADGT_ASPECT, and RYGT_ASPECT for GT7
             public bool Wide;          // Scene is a native scene wider than 16:9
+            public bool Tall;          // Scene is a native scene taller than 16:9 (FEAT-RT-051)
             public bool FromShape;     // ... that Screen shape asked for, not an ultrawide render resolution
             public bool SportPicture;  // GT Sport's wide picture over its 16:9 scene (WIDE-001, FEAT-SGT-203)
             public string Kind = "";   // "stretched", "taller", "taller-ui" (interface stretched too) or ""
@@ -195,14 +196,16 @@ namespace RyGT
 
         // FEAT-RT-042, FIX-RT-049, FIX-RT-050: the scene and the aspect of one launch, the same rule
         // for both games. preset: an aspect set outside the Display page (the Advanced page, a
-        // script), which wins over Screen shape. tallPicture: this renderer keeps GT Sport's menus
-        // and HUD 16:9 on a taller screen (FEAT-SGT-203); asked only when it matters.
+        // script), which wins over Screen shape. rendererHas: whether this folder's renderer reads a
+        // switch (what it can do), asked only when it matters.
         // - An ultrawide Render resolution (or Auto in an ultrawide window) is its own shape.
         // - A wider Screen shape, Native: the scene is rendered at that shape, at the Render
         //   resolution's height (1080 for Game default).
         // - A wider Screen shape, Stretched: the 16:9 scene is widened over the screen.
-        // - A taller Screen shape: the race view fits the screen from the 16:9 scene (neither game
-        //   has a native scene taller than 16:9).
+        // - A taller Screen shape, Native (FEAT-RT-051): the scene is rendered at that shape, at the
+        //   Render resolution's width (1920 x 1200 for Game default on a 16:10 screen), where the
+        //   renderer can. GT Sport: FEAT-SGT-210 (RYGT_TALL_SCENE). GT7: not yet.
+        // - A taller Screen shape otherwise: the race view fits the screen from the 16:9 scene.
         // What still differs between the games, and why:
         // - Pro 4K TV: the game sets the scene. GT7 keeps its shape; GT Sport's wide picture is off
         //   there (shadGT turns WIDE-001 off), so GT Sport stays 16:9.
@@ -212,7 +215,7 @@ namespace RyGT
         // - GT Sport's stretched and taller shapes are refused beside a fixed render resolution.
         //   Not a confirmed difference: that combination was never played.
         public static ScenePlan Plan(bool gts, string preset, string mode, string pro, Size output,
-                                     Func<string, object> setting, Func<bool> tallPicture)
+                                     Func<string, object> setting, Func<string, bool> rendererHas)
         {
             string shape = ExactShape(SavedShape(setting, mode), output);
             double ratio = ShapeRatio(shape, output);
@@ -237,23 +240,33 @@ namespace RyGT
                     plan.Scene = scene;
                     plan.Wide = plan.FromShape = true;
                     plan.Aspect = scene.Width + ":" + scene.Height;
-                } else plan.Refusal = "This screen shape cannot be rendered at " + height + " lines: set Wide picture to Stretched.";
+                } else plan.Refusal = "This screen shape cannot be rendered at " + height + " lines: set Shape rendering to Stretched.";
             } else if (wider) {
                 if (!gts) plan.Kind = "stretched";
                 else if (!IsWideOutput(output)) plan.Aspect = "16:9";
                 else if (!IsGameDefault(own, pro))
-                    plan.Refusal = "GT Sport stretches only its own picture: set Render resolution to Game default, or Wide picture to Native.";
+                    plan.Refusal = "GT Sport stretches only its own picture: set Render resolution to Game default, or Shape rendering to Native.";
                 else {
                     plan.SportPicture = true;
                     plan.Kind = "stretched";
                     plan.Refusal = SportFillRefusal(setting);
                 }
+            } else if (taller && !SavedStretch(setting, mode) && gts && IsTallOutput(output) &&
+                       rendererHas("RYGT_TALL_SCENE")) {
+                // GT7 has no native scene taller than 16:9 yet: it takes the next branch.
+                int width = own.HasValue ? own.Value.Width : 1920;
+                Size scene = TallScene(ratio, width);
+                if (SupportsTallScene(scene)) {
+                    plan.Scene = scene;
+                    plan.Tall = plan.FromShape = true;
+                    plan.Aspect = scene.Width + ":" + scene.Height;
+                } else plan.Refusal = "This screen shape cannot be rendered " + width + " points wide: set Shape rendering to Stretched.";
             } else if (taller) {
                 if (!gts) plan.Kind = "taller";
                 else if (!IsTallOutput(output)) plan.Aspect = "16:9";
                 else if (!IsGameDefault(own, pro))
                     plan.Refusal = "GT Sport fills a taller screen only from its own picture: set Render resolution to Game default, or Screen shape to 16:9.";
-                else if (tallPicture()) {
+                else if (rendererHas("RYGT_TALL_SCREEN")) {
                     plan.SportPicture = true;
                     plan.Kind = "taller";
                     plan.Refusal = SportFillRefusal(setting);
@@ -261,8 +274,8 @@ namespace RyGT
             }
             if (plan.Refusal == null) {
                 string wayOut = !plan.FromShape ? null
-                    : IsGameDefault(own, pro) ? "set Wide picture to Stretched"
-                    : "set Render resolution to Game default and Wide picture to Stretched";
+                    : IsGameDefault(own, pro) ? "set Shape rendering to Stretched"
+                    : "set Render resolution to Game default and Shape rendering to Stretched";
                 plan.Refusal = Refusal(gts, setting, plan.Scene, output, pro, wayOut);
             }
             return plan;
@@ -275,6 +288,32 @@ namespace RyGT
             // Width alignment can round the last row over the allocation budget.
             if ((long)fit.Width * fit.Height > 3840L * 2160) fit = TrueWideSize(ratio, fit.Height - 1);
             return fit;
+        }
+
+        // FEAT-RT-051: a native scene taller than 16:9, down to 5:4, within the same limits as a
+        // wide one (16-point width, 2160 lines, 4K's pixel count).
+        public static bool SupportsTallScene(Size size)
+        {
+            return size.Width >= 640 && size.Width <= 3840 && size.Width % 16 == 0 &&
+                size.Height >= 360 && size.Height <= 2160 && size.Height % 8 == 0 &&
+                (double)size.Width / size.Height < 16.0 / 9 - 0.01 && size.Width * 4 >= size.Height * 5 &&
+                (long)size.Width * size.Height <= 3840L * 2160;
+        }
+
+        // The scene of a taller shape: the 16:9 scene's width kept, more lines (1920 x 1200 at 16:10,
+        // 1920 x 1440 at 4:3). Past 2160 lines or 4K's pixel count the height is capped and the
+        // width follows. shadGT derives the width back from the height and this scene's aspect.
+        static Size TallScene(double ratio, int width)
+        {
+            double aspect = (float)ratio;
+            int height = (int)Math.Round(width / aspect) & ~7;
+            int limit = Math.Min(2160, (int)Math.Sqrt(3840.0 * 2160 / aspect)) & ~7;
+            if (height > limit) {
+                height = limit;
+                width = (int)Math.Round(height * aspect / 16.0, MidpointRounding.AwayFromZero) * 16;
+                if ((long)width * height > 3840L * 2160) width -= 16;
+            }
+            return new Size(width, height);
         }
 
         public static bool IsTallOutput(Size output)
@@ -316,11 +355,15 @@ namespace RyGT
                     ? "Choose the Native renderer and turn off experimental viewport scaling to render at the screen's shape, or " +
                       (gts && oldRenderer ? "set Screen shape to 16:9" : wayOut) + "."
                     : "Choose the Native renderer and turn off experimental viewport scaling for a fixed render resolution.";
-            if (!SupportsWideScene(scene.Value)) return null;
+            bool tall = SupportsTallScene(scene.Value);
+            if (!SupportsWideScene(scene.Value) && !tall) return null;
             string shape = WideOutputWarning(scene.Value, output);
             if (shape != null) return wayOut != null ? shape + " Or set Screen shape to Match the window or display." : shape;
+            // FEAT-RT-051: shadGT keeps GT Sport's 16:9 scene on a taller screen in Pro mode (never played).
+            if (tall) return gts && pro != "off"
+                ? "Choose base PS4 mode to render GT Sport at a taller screen's shape, or set Shape rendering to Stretched." : null;
             if (gts || pro == "off") return null;
-            return wayOut != null ? "Choose base PS4 mode to render GT7 at the screen's shape, or set Wide picture to Stretched."
+            return wayOut != null ? "Choose base PS4 mode to render GT7 at the screen's shape, or set Shape rendering to Stretched."
                                   : "Choose base PS4 mode to use native ultrawide rendering in GT7.";
         }
 

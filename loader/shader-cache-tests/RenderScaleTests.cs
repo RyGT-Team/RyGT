@@ -71,8 +71,9 @@ Check(RenderResolution.SportFillRefusal(saved).Contains("Native renderer"),"GT S
 // FIX-RT-049: the saved shape, the real screen's shape, and what each game is handed.
 profile.Clear();
 bool tallRenderer=false;
-Func<bool,string,string,string,Size,RenderResolution.ScenePlan> plan=(g,preset,mode,pro,output)=>RenderResolution.Plan(g,preset,mode,pro,output,saved,()=>tallRenderer);
-Func<RenderResolution.ScenePlan,string> told=p=>String.Join(" ",new[]{p.Scene.HasValue?p.Scene.Value.Width+"x"+p.Scene.Value.Height:"game",p.Aspect,p.Kind,p.Wide?"wide":"",p.FromShape?"shape":"",p.SportPicture?"picture":"",p.Refusal!=null?"refused":""}.Where(s=>s!=""));
+bool tallScene=false;
+Func<bool,string,string,string,Size,RenderResolution.ScenePlan> plan=(g,preset,mode,pro,output)=>RenderResolution.Plan(g,preset,mode,pro,output,saved,name=>name=="RYGT_TALL_SCREEN"?tallRenderer:name=="RYGT_TALL_SCENE"&&tallScene);
+Func<RenderResolution.ScenePlan,string> told=p=>String.Join(" ",new[]{p.Scene.HasValue?p.Scene.Value.Width+"x"+p.Scene.Value.Height:"game",p.Aspect,p.Kind,p.Wide?"wide":"",p.Tall?"tall":"",p.FromShape?"shape":"",p.SportPicture?"picture":"",p.Refusal!=null?"refused":""}.Where(s=>s!=""));
 Size wide1080 = new Size(2560,1080), wide1600 = new Size(3840,1600), superwide = new Size(5120,1440), tall = new Size(1920,1200);
 Check(RenderResolution.SportFillRefusal(saved)==null,"GT Sport fills with the native renderer by default");
 Check(RenderResolution.SavedShape(saved,"game")=="16:9" && !RenderResolution.SavedStretch(saved,"game") && told(plan(false,null,"game","off",wide1440))=="game 16:9" && told(plan(true,null,"game","off",wide1440))=="game 16:9","no saved shape is 16:9 in both games, and Native is the default");
@@ -100,7 +101,7 @@ foreach (bool g in new[] {false,true}) {
 }
 Check(told(plan(false,null,"game","4k",superwide))=="game 21:9 stretched" && told(plan(true,null,"game","4k",wide1440))=="game 16:9","Pro 4K TV: GT7 keeps its shape, GT Sport stays 16:9");
 Check(told(plan(false,null,"2560x1440","off",wide1440))=="2560x1440 auto stretched","GT7 stretches a fixed 16:9 scene");
-Check(told(plan(true,null,"2560x1440","off",wide1440))=="2560x1440 auto refused" && plan(true,null,"2560x1440","off",wide1440).Refusal.Contains("Wide picture to Native"),"GT Sport's stretch beside a fixed scene is refused with the way out");
+Check(told(plan(true,null,"2560x1440","off",wide1440))=="2560x1440 auto refused" && plan(true,null,"2560x1440","off",wide1440).Refusal.Contains("Shape rendering to Native"),"GT Sport's stretch beside a fixed scene is refused with the way out");
 Check(told(plan(true,null,"game","off",fhd))=="game 16:9" && told(plan(true,null,"game","off",tall))=="game 16:9","GT Sport's wide shape does nothing on a screen that is not wider");
 profile["native_renderer"]=false;
 Check(plan(true,null,"game","off",wide1440).Refusal.Contains("Native renderer") && plan(false,null,"game","off",wide1440).Refusal==null,"GT Sport's stretch needs the native renderer");
@@ -118,8 +119,8 @@ foreach (bool g in new[] {false,true}) {
     Check(told(other)=="2512x1080 2512:1080 wide shape refused" && other.Refusal.Contains("same aspect ratio") && other.Refusal.Contains("Match the window"),"a named shape that is not the screen's is refused with the way out, gts="+g);
     foreach (string upscaler in new[] {"dlss_enabled","fsr_enabled"}) {
         profile[upscaler]=true;
-        Check(plan(g,null,"game","off",wide1440).Refusal.Contains("or set Wide picture to Stretched."),upscaler+" with a native shape names Stretched, gts="+g);
-        Check(plan(g,null,"2560x1440","off",wide1440).Refusal.Contains("Game default and Wide picture to Stretched"),upscaler+" with a native shape and a fixed height, gts="+g);
+        Check(plan(g,null,"game","off",wide1440).Refusal.Contains("or set Shape rendering to Stretched."),upscaler+" with a native shape names Stretched, gts="+g);
+        Check(plan(g,null,"2560x1440","off",wide1440).Refusal.Contains("Game default and Shape rendering to Stretched"),upscaler+" with a native shape and a fixed height, gts="+g);
         profile.Remove(upscaler);
     }
 }
@@ -131,7 +132,7 @@ Check(plan(true,null,"game","off",wide1440).Refusal.Contains("Native renderer") 
 profile.Remove("native_renderer");
 profile["screen_stretch"]=true;
 Check(told(plan(false,null,"game","off",wide1440))=="game auto stretched" && told(plan(true,null,"game","off",wide1440))=="game auto stretched picture","Stretched chosen on the page");
-// Taller shapes: from the 16:9 scene in both games, whatever Wide picture says.
+// Taller shapes: from the 16:9 scene in both games, whatever Shape rendering says.
 profile["screen_aspect"]="16:10";
 foreach (bool stretch in new[] {false,true}) {
     profile["screen_stretch"]=stretch;
@@ -153,6 +154,31 @@ tallRenderer=false;
 profile["screen_aspect"]="auto";
 Check(told(plan(true,null,"game","off",tall))=="game auto taller-ui" && told(plan(false,null,"game","off",tall))=="game auto taller","Match follows a taller screen");
 Check(told(plan(true,null,"game","off",fhd))=="game auto" && told(plan(false,null,"game","off",fhd))=="game auto","Match on a 16:9 screen changes nothing");
+// FEAT-RT-051: a taller shape rendered natively where the renderer can (GT Sport with FEAT-SGT-210).
+tallRenderer=true; tallScene=true;
+profile["screen_aspect"]="16:10"; profile["screen_stretch"]=false;
+Size tall43=new Size(1440,1080), tall1600=new Size(2560,1600);
+Check(told(plan(true,null,"game","off",tall))=="1920x1200 1920:1200 tall shape","GT Sport's native 16:10 scene");
+Check(told(plan(true,null,"2560x1440","off",tall1600))=="2560x1600 2560:1600 tall shape","the render resolution gives the width of a taller scene");
+Check(told(plan(true,null,"3840x2160","off",tall))=="3456x2160 3456:2160 tall shape","a taller scene stays within 2160 lines");
+Check(told(plan(true,null,"game","off",fhd))=="game 16:9" && told(plan(true,null,"game","off",wide1440))=="game 16:9","a taller shape needs a taller screen in GT Sport");
+Check(told(plan(true,null,"game","4k",tall))=="game 16:9","Pro 4K TV keeps the game's scene on a taller screen");
+var proTall=plan(true,null,"game","1080p",tall);
+Check(proTall.Refusal!=null && proTall.Refusal.Contains("base PS4") && proTall.Refusal.Contains("Stretched"),"GT Sport's native taller scene needs base mode");
+profile["dlss_enabled"]=true;
+Check(plan(true,null,"game","off",tall).Refusal.Contains("Shape rendering to Stretched"),"upscaling with a native taller scene names Stretched");
+profile.Remove("dlss_enabled");
+Check(told(plan(false,null,"game","off",tall))=="game auto taller","GT7 has no native taller scene yet");
+profile["screen_aspect"]="4:3";
+Check(told(plan(true,null,"game","off",tall43))=="1920x1440 1920:1440 tall shape","GT Sport's native 4:3 scene");
+var other43=plan(true,null,"game","off",tall);
+Check(other43.Refusal!=null && other43.Refusal.Contains("same aspect ratio") && other43.Refusal.Contains("Match the window"),"a named taller shape that is not the screen's is refused");
+profile["screen_stretch"]=true;
+Check(told(plan(true,null,"game","off",tall43))=="game auto taller picture","Stretched keeps the 16:9 scene on a taller screen");
+tallScene=false; profile["screen_stretch"]=false;
+Check(told(plan(true,null,"game","off",tall43))=="game auto taller picture","a renderer without the taller scene keeps the 16:9 scene");
+tallRenderer=false;
+Check(RenderResolution.SupportsTallScene(new Size(1920,1200)) && RenderResolution.SupportsTallScene(new Size(1920,1440)) && !RenderResolution.SupportsTallScene(new Size(1920,1080)) && !RenderResolution.SupportsTallScene(new Size(1080,1920)) && !RenderResolution.SupportsTallScene(new Size(3840,2400)),"taller scene limits");
 Check(RenderResolution.IsTallOutput(tall) && !RenderResolution.IsTallOutput(fhd) && !RenderResolution.IsTallOutput(wide1440),"taller screens");
 profile.Clear();
 profile.Remove("native_renderer"); profile["experimental_render_scale"]=true;

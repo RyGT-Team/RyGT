@@ -173,7 +173,7 @@ namespace RyGT
             Func<string, System.Diagnostics.ProcessStartInfo> configured = preset => {
                 var start = new System.Diagnostics.ProcessStartInfo();
                 foreach (string name in new[] { "RYGT_ASPECT", "SHADGT_ASPECT", "RYGT_NATIVE_4K", "SHADGT_PATCH", "RYGT_PATCH",
-                                                "RYGT_NEO", "SHADGT_NEO", "SHADGT_PS4_PRO", "SHADGT_WIDE_SCENE", "SHADGT_UI_HIRES" })
+                                                "RYGT_NEO", "SHADGT_NEO", "SHADGT_PS4_PRO", "SHADGT_WIDE_SCENE", "SHADGT_UI_HIRES", "RYGT_TALL_SCENE" })
                     start.EnvironmentVariables.Remove(name);
                 if (preset != null) start.EnvironmentVariables["SHADGT_ASPECT"] = preset;
                 launch.Invoke(null, new object[] { start, root, game, new List<EnvVar>() });
@@ -187,7 +187,7 @@ namespace RyGT
                   "Screen shape starts at 16:9; both games list the same shapes");
             Check(widePicture.Enabled && widePicture.Items.Count == 2 && widePicture.SelectedIndex == 0 &&
                   ((string)widePicture.SelectedItem).StartsWith("Native") && ((string)widePicture.Items[1]).Contains("old method"),
-                  "Wide picture starts at Native; Stretched is named the old method");
+                  "Shape rendering starts at Native; Stretched is named the old method");
             var plain = configured(null);
             Check(plain.EnvironmentVariables["SHADGT_ASPECT"] == "16:9" &&
                   plain.EnvironmentVariables["RYGT_ASPECT"] == (sport ? null : "16:9") &&
@@ -293,6 +293,27 @@ namespace RyGT
                 var tall = configured(null);
                 Check(tall.EnvironmentVariables["SHADGT_ASPECT"] == "auto" && tall.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "0" &&
                       tall.EnvironmentVariables["SHADGT_UI_HIRES"] == null, "GT Sport's 16:10 is its plain stretch on a 16:10 screen");
+                // FEAT-RT-051: with a renderer that has the taller scene (FEAT-SGT-210) and Native, the
+                // launch asks for a 1920 x 1200 scene and saves what the renderer reads from the profile.
+                string fakeRenderer = Path.Combine(root, SwitchWalker.RendererFile);
+                Check(!File.Exists(fakeRenderer), "The test folder has no renderer of its own");
+                Directory.CreateDirectory(Path.GetDirectoryName(fakeRenderer));
+                File.WriteAllBytes(fakeRenderer, System.Text.Encoding.ASCII.GetBytes("RYGT_TALL_SCREEN\0RYGT_TALL_SCENE\0"));
+                try {
+                    var picture = configured(null);
+                    Check(picture.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" && picture.EnvironmentVariables["SHADGT_UI_HIRES"] == "1" &&
+                          picture.EnvironmentVariables["RYGT_TALL_SCENE"] == null && picture.EnvironmentVariables["SHADGT_ASPECT"] == "auto",
+                          "Stretched on a 16:10 screen keeps the 16:9 scene with menus and HUD 16:9");
+                    Check(tallProfile.Contains("\"screen_stretch\":true"), "The test profile is on Stretched here");
+                    File.WriteAllText(game.ConfigPath(root), tallProfile.Replace("\"screen_stretch\":true", "\"screen_stretch\":false"));
+                    var nativeTall = configured(null);
+                    string savedTall = File.ReadAllText(game.ConfigPath(root));
+                    Check(nativeTall.EnvironmentVariables["SHADGT_ASPECT"] == "1920:1200" && nativeTall.EnvironmentVariables["RYGT_TALL_SCENE"] == "1" &&
+                          nativeTall.EnvironmentVariables["SHADGT_WIDE_SCENE"] == "1" && nativeTall.EnvironmentVariables["SHADGT_UI_HIRES"] == "1" &&
+                          nativeTall.EnvironmentVariables["SHADGT_PATCH"] == null && savedTall.Contains("\"wide_scene_height\":1200") &&
+                          savedTall.Contains("\"wide_scene_alloc\":true") && savedTall.Contains("\"native_resolution\":\"game\""),
+                          "Native on a 16:10 screen asks GT Sport for a 1920 x 1200 scene");
+                } finally { File.Delete(fakeRenderer); }
                 File.WriteAllText(game.ConfigPath(root), wideWindow);
                 Check(configured(null).EnvironmentVariables["SHADGT_ASPECT"] == "16:9", "GT Sport's 16:10 does nothing in a 16:9 window");
             } else {

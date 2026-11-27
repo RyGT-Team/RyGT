@@ -8,8 +8,18 @@ CI fails when the two disagree.
 
 ## 0.3.28 - 2026-11-28
 
+* FEAT-RT-051: a Screen shape taller than 16:9 (16:10, 4:3) is rendered at that shape in GT Sport, where the
+  renderer can (shadGT FEAT-SGT-210, its switch `RYGT_TALL_SCENE`). With Shape rendering on Native, the scene
+  keeps the 16:9 scene's width and gets more lines: 1920 x 1200 on a 16:10 screen, 1920 x 1440 on a 4:3 one,
+  2560 x 1600 beside a 2560 x 1440 Render resolution, within 2160 lines and 4K's pixel count. Until now the
+  1080-line scene was enlarged to the taller screen (11% in height at 16:10).
+  - Refused with a message in PS4 Pro mode and with upscaling on (not played together); Stretched, or a
+    renderer without the taller scene, keeps the 16:9 scene as before.
+  - GT7 has no scene taller than 16:9 yet and keeps its current path.
+  - The row added by FIX-RT-050 is named "Shape rendering" (it was "Wide picture"): it decides taller shapes too.
+  Not played yet.
 * FIX-RT-050: a Screen shape wider than 16:9 is rendered at that shape, in both games, and the Display page has
-  the same rows for both. A new row, Wide picture (`GPU.screen_stretch`), chooses how:
+  the same rows for both. A new row, Shape rendering (`GPU.screen_stretch`), chooses how:
   - Native, the default: the scene is rendered at the screen's shape, at the Render resolution's height (1080
     lines for Game default: 2576 x 1080 on a 3440 x 1440 screen, 3840 x 1080 on a 32:9 one). GT7 patches its
     scene, GT Sport allocates its wide scene (WIDE-001). It needs upscaling off, base PS4 mode in GT7 and the
